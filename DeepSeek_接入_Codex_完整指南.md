@@ -1,1475 +1,1356 @@
-﻿# 将 DeepSeek 接入 Codex：完整配置、官方登录保留、模型切换与故障排查指南
+# DeepSeek 与 Codex 完整入门指南
 
-> 适用于第一次使用 Codex / DeepSeek API 的用户，也适用于已经使用过其中任意一方、但尚未完成 DeepSeek 接入 Codex 的用户。
+注：本文由GPT6攥写，请自行核对资料真实性。推荐完整阅读并实操三章，推荐最终以Codex接入DeepSeek API形式使用。
 
-本文推荐使用：
+> 面向零基础用户，以 Windows 10/11 的操作为主。资料核对日期：2026 年 9 月 17 日。
+>
+> 第一章可以独立完成：中国大陆用户使用普通互联网连接，通过 DeepSeek Harness 调用官方 API，按项目读取、修改文件并运行命令，不需要翻墙、Codex、OpenAI 账号或付费中转服务；首次使用需要安装 Node.js 和助手软件。第二章介绍 Codex 的使用；第三章是在前两章基础上，把 GPT 与 DeepSeek 接到同一套工作流程中。
+>
+> 模型、套餐和按钮名称会更新。本文标明了核对时的模型名；软件界面名称不一致时，按括号内的功能寻找对应入口。本文的“同时使用”是指保留两套可切换的配置，不保证同一个任务同时调用两家模型。
 
-- 最新版 Codex
-- 最新版 CC Switch
-- DeepSeek 官方原生 Responses API
+## 目录与阅读路线
 
-本文**不推荐继续使用需要本地协议转换路由的旧版 DeepSeek 配置**。
+- [第一章：DeepSeek保姆级使用指南](#chapter-1)：注册、充值、创建密钥、启动项目助手、读写文件、运行测试与排错。
+- [第二章：Codex保姆级使用指南](#chapter-2)：安装、登录、打开文件夹、完成第一个任务、检查修改、登录和配置维护。
+- [第三章：便捷地同时使用GPT与DeepSeek](#chapter-3)：CC Switch 配置、保留官方登录、切换模型、迁移旧配置与恢复。
 
-如果你的 CC Switch 或 DeepSeek Provider 仍然提示 `Needs Routing`，请优先：
+| 你的情况 | 从哪里开始 |
+| --- | --- |
+| 想在大陆用 DeepSeek API 像 Codex 一样处理项目 | 第一章，按“1.17 第一章完成检查”验收 |
+| 只想学会使用 Codex | 第二章；先看“2.1 使用条件、账号与费用” |
+| 两个都没用过，希望以后切换 | 第一章 → 第二章 → 第三章 |
+| 两边都已能独立使用 | 第三章“3.1 开始前的检查” |
+| 接入后 GPT 消失或出现 401 | 第三章“3.9 按请求地址排查 401” |
 
-1. 升级 CC Switch；
-2. 删除旧 DeepSeek Provider；
-3. 使用最新版 DeepSeek 预设重新创建；
-4. 使用原生 Responses 配置；
-
-而不是继续沿用旧路由方案。
-
----
-
-## 目录
-
-1. 最终要实现什么
-2. 需要准备什么
-3. 核心概念：登录认证与模型 Provider 是两回事
-4. 第一次配置前：先确保官方 Codex 正常
-5. 检查 Codex 登录状态
-6. Windows 找不到 `codex` 命令怎么办
-7. 备份 Codex 配置
-8. 开启 CC Switch 的官方登录保护
-9. 添加 DeepSeek
-10. 填写 DeepSeek API Key
-11. 检查是否为原生 Responses 配置
-12. 启用 DeepSeek
-13. 为什么需要重启 Codex
-14. 成功后的正常表现
-15. 如何确认请求真的走 DeepSeek
-16. 为什么 DeepSeek 模式下只有 DeepSeek 模型
-17. 如何从 DeepSeek 切回 GPT
-18. 如何重新切回 DeepSeek
-19. 是否可以热切换
-20. 旧配置需要路由时怎么办
-21. 401 Unauthorized 的原因与修复
-22. `config.toml` 排查指南
-23. Windows 环境变量排查
-24. 不同用户应该从哪里开始
-25. 推荐的日常使用方式
-26. 最终自检清单
-27. 常见问题 FAQ
-28. 官方下载与文档链接
-29. 七条必须记住的原则
+**复制命令的规则：**只复制代码框内部，不复制围住代码的三个反引号；代码框标记为 `powershell` 的内容放进 PowerShell，标记为 `text` 的内容只是示意或供粘贴的提示词。遇到多行命令，要整块复制，粘贴后按一次回车。不要把网址当成命令输入。
 
 ---
 
-# 1. 最终要实现什么
+<a id="chapter-1"></a>
+# 第一章：DeepSeek保姆级使用指南
 
-完成配置后，推荐状态是：
+<a id="s1-1"></a>
+## 1.1 本章要实现什么：让 DeepSeek 在项目里工作
 
-```text
-Codex
-├─ 官方身份：ChatGPT / OpenAI OAuth
-└─ 当前模型：DeepSeek
-
-CC Switch
-└─ 管理 DeepSeek Provider 与 API Key
-```
-
-简单来说：
+本章教你使用 **DeepSeek Harness（简称 dsh）＋ DeepSeek 官方 API**：选定电脑里的项目文件夹，用中文交代任务，让助手读取文件、修改文件、运行检查，并根据报错继续修复。这里使用的是 DeepSeek API 的项目助手用法，不是仅在 PowerShell 中问一句、答一句。
 
 ```text
-“你是谁”
-由 ChatGPT / OpenAI 官方登录决定
-
-“当前请求发给哪个模型”
-由 CC Switch 当前 Provider 决定
+你在本地浏览器界面输入需求
+        ↓
+DeepSeek Harness 管理当前项目、文件工具和命令工具
+        ↕
+DeepSeek 官方 API（例如 deepseek-flash）分析并决定下一步
+        ↓
+Harness 在你的电脑上执行获准操作，显示文件变更和运行结果
 ```
 
-因此完全可能出现下面这种状态：
+**API 模型本身不能隔空操作你的硬盘。**文件读取、写入和命令执行由本地助手提供；它把相关内容发送给模型，再执行模型提出的工具操作。读取到并提交给模型的文件内容会发送给 DeepSeek，因此应只开放你愿意交给该服务处理的资料。
 
-```text
-Codex 中显示：
-已登录你的 ChatGPT 官方账号
+本章主路线：
 
-实际使用模型：
-DeepSeek
-```
+| 部分 | 使用什么 |
+| --- | --- |
+| 本地项目助手 | DeepSeek 官方开源的 DeepSeek Harness |
+| 操作界面 | 浏览器访问本机 Web UI，不是 DeepSeek 网页聊天 |
+| 模型服务 | DeepSeek 开放平台 |
+| 模型 ID | `deepseek-flash`，核对时对应 V4.1 Flash |
+| 运行环境 | Node.js；不需要 Python、Codex、ChatGPT 账号或 CC Switch |
+| 最终验收 | 读取练习项目 → 修改真实文件 → 实际运行测试并通过 |
 
-这是正常的。
+依据：[DeepSeek Harness 官方项目](https://github.com/deepseek-ai/deepseek-harness)、[官方工作区与任务说明](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart)、[DeepSeek 模型更新日志](https://api-docs.deepseek.com/updates/)。
 
----
+**版本说明：**Harness 当前是开发者预览版，界面与行为可能变化，不能把它当成已审计的强隔离环境。先用下文新建的小练习目录，重要项目先备份；不要把选中工作区误解为“绝不可能访问目录之外”。官方建议在专用或隔离环境使用，详见[官方安全说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/SAFETY.zh.md)。
 
-# 2. 需要准备什么
+**关于大陆网络：**模型请求直接访问 `api.deepseek.com`，不需要翻墙或付费中转。首次安装还需要下载 Node.js 和 npm 软件包；下载站点可能受具体网络影响，本章提供网络排查，不承诺所有校园网、单位网都能一次下载成功。运行任务涉及 GitHub、国外依赖或外部网站时，其网络需求也不能靠 DeepSeek API 自动解决。
 
-## 2.1 Codex / ChatGPT 桌面客户端
+<a id="s1-2"></a>
+## 1.2 注册并进入 DeepSeek 开放平台
 
-OpenAI 官方下载页面：
+1. 打开电脑上的 Edge、Chrome 或其他浏览器。
+2. 点击地址栏，输入 `https://platform.deepseek.com/`，按回车。
+3. 核对域名是 `platform.deepseek.com`。不要从广告中的“代充值”“共享账号”入口开始。
+4. 选择当前页面提供的注册或登录方式。已有账号就登录；没有账号就按页面提示注册。
+5. 如果页面提供手机号登录，选择正确区号，输入自己的手机号，点击获取验证码，再输入收到的验证码。
+6. 如果要求阅读协议、补充资料或完成验证，按页面提示完成。不同时间和账号可能显示不同要求。
+7. 登录后确认看到开放平台控制台，例如余额、API Keys、用量等入口。如果只有一个聊天输入框，你可能打开了聊天产品，请回到第 2 步的网址。
 
-- https://chatgpt.com/download/
+使用大陆正常网络即可按本章操作。若页面打不开，先用手机流量或另一条正常网络重试，排除校园网、单位网络的限制；无需为本章安装跨境代理。
 
-OpenAI Codex 官方页面：
+**完成本节的标志：**能进入自己的开放平台控制台，而不仅是能在网页中聊天。
 
-- https://openai.com/codex/
+<a id="s1-3"></a>
+## 1.3 确认余额并完成必要的充值
 
----
+网页聊天能使用，不等于 API 账户已有余额。API 费用由开放平台单独结算。
 
-## 2.2 ChatGPT / OpenAI 官方账号
+1. 在开放平台寻找“余额”“充值”或同类入口。
+2. 查看当前可用余额。如果已有足够的可用额度，可以跳过充值。
+3. 没有可用额度时，点击充值。
+4. 阅读页面显示的充值说明、可选金额和支付方式；选一个能接受的小额金额先测试，最低金额以页面为准。
+5. 通过平台当时提供的支付方式完成支付。不要向私人账户转账购买所谓“官方额度”。
+6. 支付后返回控制台，刷新页面，确认余额更新，再继续下一节。
 
-建议先使用官方账号正常登录一次 Codex。
+模型按输入、输出等用量计费；缓存、时段等也可能影响价格。正式大量使用前查看[DeepSeek 官方模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)，不要把旧文章中的单价当成永久价格。
 
-本文推荐长期保留：
+本章先做一个小项目练习。助手完成一次任务可能多次请求模型：读文件、分析、改文件、运行后再分析都可能增加用量。先用小额额度测试，并在任务完成后查看用量；一次点击发送不等于只计费一次。
 
-```text
-ChatGPT OAuth 登录
-```
+**完成本节的标志：**控制台显示有可用 API 额度。
 
-而不是让 DeepSeek API Key 替代 Codex 的官方身份认证。
+<a id="s1-4"></a>
+## 1.4 创建并保管 API Key
 
----
+1. 在控制台找到“API Keys”或“API 密钥”。
+2. 点击“创建 API Key”“创建新密钥”或功能相同的按钮。
+3. 如果要求填名称，输入 `我的电脑入门测试` 等便于辨认的名称。
+4. 确认创建。
+5. 复制完整密钥。它通常以 `sk-` 开头；不要只复制前几位或被星号遮住的内容。
+6. 如果平台提示只展示一次，请当场保存到自己的密码管理器等私密位置。以后找不到完整值时，可以新建密钥并撤销旧密钥。
+7. 不要把密钥写进作业、截图、聊天记录、GitHub 仓库或公开代码文件。
 
-## 2.3 DeepSeek API Key
+API Key 可以花费你账户里的 API 额度。如果泄露，回到密钥列表撤销该密钥，再创建新的；只删除别人看到的截图并不能使旧密钥失效。
 
-注意：
+**完成本节的标志：**手里有自己创建的完整密钥，且没有发给任何人。
 
-```text
-DeepSeek 网页聊天账号
-≠
-DeepSeek API Key
-```
+<a id="s1-5"></a>
+## 1.5 安装 Node.js，并确认能启动助手
 
-即使你可以在 DeepSeek 网页或 App 中正常聊天，也不代表已经拥有可供 Codex 使用的 API Key。
+### 第一步：安装 Node.js
 
-DeepSeek API 平台：
+1. 在浏览器打开 [Node.js 官网](https://nodejs.org/)。
+2. 选择 Windows 的 **Node.js 24 LTS** 安装程序；核对时 Harness 的源码要求 Node.js `^22.19.0 || >=24.0.0`，本教程统一用 24 LTS。[官方运行环境声明](https://github.com/deepseek-ai/deepseek-harness/blob/master/package.json)
+3. 在 Windows“设置 → 系统 → 系统信息”查看系统类型，选择对应的 x64 或 ARM64 安装包。
+4. 双击下载的安装文件，按向导完成安装。保留 npm 和加入 PATH 的默认选项；本练习不需要额外安装全部原生编译工具。
+5. 安装完成后，关闭之前打开的终端窗口。
 
-- https://platform.deepseek.com/
+### 第二步：打开 PowerShell
 
-DeepSeek API 文档：
-
-- https://api-docs.deepseek.com/zh-cn/
-
-创建出的 API Key 通常类似：
-
-```text
-sk-xxxxxxxxxxxxxxxxxxxx
-```
-
-### 安全提醒
-
-不要公开完整 API Key。
-
-排障时可以写成：
-
-```text
-sk-abcd***1234
-```
-
-不要：
-
-- 上传到 GitHub
-- 发到公开群聊
-- 直接贴进论坛
-- 完整截图
-- 发给陌生人
-
----
-
-## 2.4 CC Switch
-
-CC Switch 官网：
-
-- https://ccswitch.io/
-
-CC Switch 官方 GitHub：
-
-- https://github.com/farion1231/cc-switch
-
-CC Switch 官方 Releases：
-
-- https://github.com/farion1231/cc-switch/releases
-
-建议使用最新版。
-
-### Windows
-
-优先下载 MSI 安装版。
-
-也可以使用 Portable 便携版。
-
-### macOS
-
-可以使用 DMG，也可以通过 Homebrew：
-
-```bash
-brew install --cask cc-switch
-```
-
-### Linux
-
-根据发行版选择：
-
-- Debian / Ubuntu：`.deb`
-- Fedora / RHEL：`.rpm`
-- 其他发行版：AppImage
-
----
-
-# 3. 核心概念：登录认证与模型 Provider 是两回事
-
-整个配置中有两个不同的东西。
-
-## 3.1 Codex 登录认证
-
-通常保存在：
-
-```text
-~/.codex/auth.json
-```
-
-Windows 通常是：
-
-```text
-C:\Users\你的用户名\.codex\auth.json
-```
-
-它决定 Codex 当前使用：
-
-```text
-ChatGPT OAuth
-```
-
-还是：
-
-```text
-API Key
-```
-
----
-
-## 3.2 Codex 当前 Provider / 模型配置
-
-主要与：
-
-```text
-~/.codex/config.toml
-```
-
-相关。
-
-Windows：
-
-```text
-C:\Users\你的用户名\.codex\config.toml
-```
-
-它可能决定：
-
-- 当前 Provider
-- Base URL
-- 模型目录
-- 自定义模型
-- 第三方配置
-
-因此：
-
-> 官方登录状态和当前模型 Provider 不是同一件事。
-
-这是理解整个教程的关键。
-
----
-
-# 4. 第一次配置前：先确保官方 Codex 正常
-
-强烈建议先建立一个完全正常的官方状态，再接入 DeepSeek。
-
-推荐顺序：
-
-```text
-先恢复官方 Codex
-↓
-确认 GPT 可用
-↓
-确认 ChatGPT 登录正常
-↓
-再配置 CC Switch
-↓
-最后添加 DeepSeek
-```
-
-不要第一次打开 Codex 就直接塞入第三方 API Key。
-
----
-
-## 4.1 先切换为 OpenAI Official
-
-打开 CC Switch：
-
-```text
-CC Switch
-→ Codex
-→ OpenAI Official
-```
-
-如果当前存在旧的第三方路由配置，建议先不要使用它。
-
----
-
-## 4.2 启动 Codex
-
-如果 Codex 提示登录：
-
-选择：
-
-```text
-Sign in with ChatGPT
-```
-
-不要选择：
-
-```text
-API Key
-```
-
-推荐状态：
-
-```text
-ChatGPT OAuth
-```
-
----
-
-# 5. 检查 Codex 登录状态
-
-如果系统能够直接识别 `codex` 命令，在 PowerShell 中运行：
+1. 点击 Windows 开始菜单，输入 `PowerShell`。
+2. 打开“Windows PowerShell”；不需要以管理员身份运行。
+3. 若使用 Windows Terminal，确认当前标签页是 PowerShell。
+4. 看到 `PS C:\Users\你的用户名>` 一类提示符后，依次执行：
 
 ```powershell
-codex login status
+node --version
+npm.cmd --version
+npx.cmd --version
 ```
 
-理想结果：
+三条命令都应显示版本号，第一条应是 `v24...`。不要把示例提示符一起复制。
 
-```text
-Logged in using ChatGPT
-```
+如果提示无法识别，先关闭并重开 PowerShell；仍失败时检查 Node.js 是否安装完成及 PATH 选项。这里使用 `npm.cmd`、`npx.cmd`，避免某些 Windows 设置拦截同名 `.ps1` 启动脚本。
 
-如果看到：
+<a id="s1-6"></a>
+## 1.6 创建一个可验证的练习项目
 
-```text
-Logged in using an API key - sk-xxxx
-```
+第一次不直接交给助手你的整个真实仓库。先创建一个只包含三个小文件的项目：模拟把 12 位 ADC 数值换算为电压，其中故意放入一个除数错误。
 
-先不要继续添加 DeepSeek。
+### 第一步：复制代码创建文件
 
-执行：
-
-```powershell
-codex logout
-codex login
-```
-
-重新选择：
-
-```text
-Sign in with ChatGPT
-```
-
-然后再次运行：
+在 PowerShell 中整块运行下面的代码。它只创建一个带时间戳的新文件夹，不覆盖原有项目；**此时没有 API 调用，不产生模型费用。**
 
 ```powershell
-codex login status
+$dsProject = Join-Path ([Environment]::GetFolderPath("MyDocuments")) ("DeepSeek项目练习-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+New-Item -ItemType Directory -Path $dsProject -ErrorAction Stop | Out-Null
+
+$dsReadmeLines = @(
+    "# ADC voltage exercise"
+    ""
+    "This exercise uses an ideal endpoint mapping, not a hardware calibration model."
+    "Map integer ADC codes 0..4095 linearly to 0..3.3 volts."
+    "The endpoints must satisfy: code 0 -> 0 V; code 4095 -> 3.3 V."
+    "Run tests with: node --test test_adc.cjs"
+    "Fix adc.cjs, then add a test for code 2048."
+)
+$dsCodeLines = @(
+    "function adcToVoltage(raw) {"
+    "  return raw * 3.3 / 4096;"
+    "}"
+    "module.exports = { adcToVoltage };"
+)
+$dsTestLines = @(
+    "const test = require('node:test');"
+    "const assert = require('node:assert/strict');"
+    "const { adcToVoltage } = require('./adc.cjs');"
+    "test('zero code is zero volts', () => {"
+    "  assert.equal(adcToVoltage(0), 0);"
+    "});"
+    "test('full-scale code is 3.3 volts', () => {"
+    "  assert.ok(Math.abs(adcToVoltage(4095) - 3.3) < 1e-12);"
+    "});"
+)
+$dsReadmeLines | Set-Content -LiteralPath (Join-Path $dsProject "README.md") -Encoding utf8
+$dsCodeLines | Set-Content -LiteralPath (Join-Path $dsProject "adc.cjs") -Encoding utf8
+$dsTestLines | Set-Content -LiteralPath (Join-Path $dsProject "test_adc.cjs") -Encoding utf8
+Set-Location -LiteralPath $dsProject
+Get-Location
+Get-ChildItem -Name
 ```
 
-直到看到：
+### 第二步：看懂你应该得到什么
+
+输出中应该有实际目录路径和以下三个文件：
 
 ```text
-Logged in using ChatGPT
+README.md       项目要求
+adc.cjs         等待助手修复的代码
+test_adc.cjs    用来验证代码的测试
 ```
 
----
+保留 PowerShell 窗口。代码已经把当前目录切换到这个新项目，下一节就在这里启动助手。
 
-# 6. Windows 找不到 `codex` 命令怎么办
+这是一个教学用的端点映射，明确规定 `4095 → 3.3 V`；不要将它直接当成所有真实 ADC 的物理转换公式。测试只验证这份项目要求，不会验证你的实物硬件。
 
-如果出现：
+<a id="s1-7"></a>
+## 1.7 在项目目录启动 DeepSeek Harness
 
-```text
-codex : 无法将“codex”项识别为 cmdlet、函数、脚本文件或可运行程序
-```
-
-并不一定意味着 Codex 没安装。
-
-Codex 桌面端可能自带 CLI，只是没有加入 PATH。
-
-打开：
-
-```text
-C:\Users\你的用户名\.codex\config.toml
-```
-
-寻找类似：
-
-```toml
-CODEX_CLI_PATH = '...codex.exe'
-```
-
-例如：
-
-```text
-C:\Users\User\AppData\Local\OpenAI\Codex\bin\xxxxxxxx\codex.exe
-```
-
-然后运行：
+1. 确认仍在 1.6 节的 PowerShell 窗口。
+2. 运行 `Get-Location`，确认目录是刚才的 `DeepSeek项目练习-日期时间`。
+3. 复制下面这一行，按回车：
 
 ```powershell
-& '完整的codex.exe路径' login status
+npx.cmd @deepseek-ai/dsh web
 ```
 
-例如：
+4. 首次运行可能询问是否安装所需软件包。核对包名是 `@deepseek-ai/dsh`，输入 `y`，按回车。
+5. 等待软件下载并启动；首次启动需要联网获取软件包。不要在等待时反复启动多个实例。
+6. 终端打印本机访问地址后，浏览器通常会自动打开。官方默认地址是 `http://127.0.0.1:3080`；如果终端显示不同地址，使用终端实际打印的地址。
+7. 没自动打开时，把该地址复制到浏览器地址栏，按回车。
+8. **保持 PowerShell 窗口运行。**它正在提供本地服务，不能以为浏览器打开后就可以把窗口关掉。
+
+启动方式来自[DeepSeek Harness 官方运行说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/README.zh.md)。
+
+`127.0.0.1` 指你的这台电脑：浏览器界面在本机，模型仍通过联网调用 DeepSeek API，不是把整个大模型下载到了电脑。不要把服务改成对整个局域网或公网开放；本教程只使用本机入口。
+
+**完成本节的标志：**浏览器显示 Harness 界面，启动窗口没有退出或报致命错误。
+
+<a id="s1-8"></a>
+## 1.8 填入 DeepSeek 密钥并选择 V4.1 Flash
+
+1. 在 Harness 浏览器界面打开“设置 → 模型”。
+2. 找到内置 **DeepSeek** 卡片。
+3. 在该卡片的 API Key 输入框中粘贴 1.4 节创建的密钥。
+4. 点击保存。不要把密钥发到普通任务聊天框。
+5. 回到会话区域，找到模型选择器。
+6. 选择 DeepSeek 下当前的 Flash 模型，核对模型 ID 是 `deepseek-flash`。
+7. 如果有思考强度选项，首次小练习可选择较低强度；先不要自行修改高级配置。
+8. 保存后显示脱敏状态是正常现象，不要求它重新显示完整密钥。
+
+本教程用内置 DeepSeek 配置，不必填写 OpenAI 账号，也不需要充值其他模型平台。官方说明见[Harness 模型配置](https://deepseek-harness.github.io/deepseek-harness/guide/providers)。
+
+若列表没有 `deepseek-flash`：先停止旧实例并按 1.13 节更新，再打开新会话检查。不要自行猜成 `deepseek-v4.1-flash`。持续缺失时核对当前版本的官方模型文档，按 1.15 节排查；不要仅凭显示名称认为已调用了目标模型。
+
+<a id="s1-9"></a>
+## 1.9 选择工作区，让助手读取真实文件
+
+1. 点击“选择工作区”。
+2. 点击添加工作区，选择 1.6 节创建的项目目录。它也是启动 `dsh` 时所在的目录。
+3. 如果需要粘贴路径，打开文件资源管理器，进入该目录，点击地址栏复制完整路径。
+4. 添加后**再选中**这个工作区。仅添加到列表不一定代表已经选中。
+5. 确认当前工作区名称正确，再创建一个会话。
+6. 确认模型仍是 DeepSeek Flash。
+7. 发送下面这段提示词：
+
+```text
+请先读取当前工作区的 README.md、adc.cjs 和 test_adc.cjs。
+现在只读，不修改文件，不运行命令。
+用中文说明：
+1. 这个项目要实现什么；
+2. 三个文件各有什么用途；
+3. 你从代码中发现了什么可能的问题。
+请引用实际读到的文件内容，不要只根据文件名猜测。
+```
+
+8. 若出现读取审批，核对路径确实指向这个练习项目，再批准。
+9. 等回答结束，查看工具记录，确认实际读取了文件。
+10. 回到资源管理器，用记事本打开 `adc.cjs`，核对它的分析是否对应文件中的 `4096`。
+
+官方说明指出，选择工作区前输入框可能不可用；遇到灰色输入框先检查工作区。[Harness 工作区说明](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart)
+
+**完成本节的标志：**助手通过工具读取真实文件，说明项目要求和代码现状。仅说“我可以读取文件”不算完成。
+
+<a id="s1-10"></a>
+## 1.10 让助手修改文件，并实际运行测试
+
+### 第一步：先跑一次测试，确认能执行命令
+
+在同一个会话发送：
+
+```text
+现在请在当前项目目录实际运行：
+node --test test_adc.cjs
+
+先不要修改任何文件。
+请告诉我实际执行的命令、退出码、哪个测试失败，以及失败原因。
+如果没有执行权限或运行环境缺失，请明确报告，不要模拟测试结果。
+```
+
+若出现命令审批，确认是上述命令、工作目录正确，再批准。
+
+预期有一个端点测试失败。这是教程故意留下的错误，说明助手已经走到了实际执行检查这一步。若它只给你一段命令让你自己运行，继续明确要求“请使用命令工具执行，并返回真实结果”。
+
+### 第二步：直接修复文件并重新测试
+
+等第一步结束后发送：
+
+```text
+请直接修改当前项目文件，不要只在聊天里贴建议代码。
+
+按 README.md 的约定修复 adc.cjs，使 0 映射到 0 V，4095 映射到 3.3 V。
+在 test_adc.cjs 增加 raw=2048 的测试，预期为 2048*3.3/4095，使用合理的浮点误差比较。
+保留已有两个测试，不要删测试或改弱断言来掩盖错误。
+不安装依赖，不联网下载，不修改项目外文件。
+
+修改后实际运行 node --test test_adc.cjs。
+如果失败，请根据错误继续修复并重新运行。
+最后给出修改的文件、关键差异、测试结果和退出码。
+```
+
+如需审批，逐次核对准备修改的文件和运行命令。遇到项目外路径或与任务无关的操作，拒绝并要求它回到练习范围。
+
+### 第三步：自己检查磁盘和运行结果
+
+1. 在资源管理器打开练习目录。
+2. 用记事本打开 `adc.cjs`，确认除数已经从 `4096` 改成 `4095`，或实现了等价且正确的逻辑。
+3. 打开 `test_adc.cjs`，确认原来两个测试还在，并增加了 2048 的测试。
+4. 另开一个 PowerShell 窗口。
+5. 输入下面命令，将路径替换为你自己的练习目录：
 
 ```powershell
-& 'C:\Users\User\AppData\Local\OpenAI\Codex\bin\xxxxxxxx\codex.exe' login status
+Set-Location -LiteralPath 'C:\Users\你的用户名\Documents\DeepSeek项目练习-实际日期时间'
+node --test test_adc.cjs
+$LASTEXITCODE
 ```
 
----
+6. 应看到 3 个测试通过、0 个失败，最后的退出码是 `0`。Node.js 不同版本的输出排版可能不同。
+7. 若磁盘上没变化、测试仍失败，把实际输出发回原会话，让它继续处理。
 
-# 7. 备份 Codex 配置
+**完成这一节，才证明你得到了类似 Codex 的项目工作能力：读取 → 修改 → 执行 → 根据结果验证。**浏览器聊天看起来顺畅，并不能替代这四步验收。
 
-在开始第三方配置前，建议备份：
+<a id="s1-11"></a>
+## 1.11 换成自己的真实项目
 
-Windows：
+练习通过后，再处理真实文件夹。
+
+1. 先保存正在编辑的文件。
+2. 用文件资源管理器复制一份项目作为备份，或在已有 Git 项目中创建可恢复的提交。
+3. 找到项目根目录：通常是包含 README、主要源代码目录、工程文件或构建配置的那一层。不要直接选整个 C 盘、用户目录或“下载”文件夹。
+4. 回到 Harness，添加并选中这个真实项目作为工作区，创建新会话。
+5. 如果文件选择器无法找到项目，先按 1.13 节停止服务，再从真实项目目录启动 Harness。
+6. 第一个任务只要求读取与解释，例如：
 
 ```text
-C:\Users\你的用户名\.codex
+请阅读当前项目的 README 和主要目录。
+先只读，不改文件、不运行命令。
+用中文说明：
+- 项目的入口文件和主要模块；
+- 如何编译、运行或测试；
+- 本机还缺少什么工具；
+- 下一步最适合从哪个文件开始。
+不能确定的内容请明确标出，不要猜。
 ```
 
-macOS / Linux：
+7. 确认它理解了项目后，再给一个小范围修改任务，例如：
 
 ```text
-~/.codex
+请检查当前项目中的串口接收逻辑，定位缓冲区越界风险。
+先指出相关文件和触发条件，再进行必要的最小修改。
+保留原有协议和引脚配置，不修改无关模块。
+使用项目已有的编译或测试方法验证；如果缺少工具链，说明缺什么，不要宣称编译成功。
 ```
 
-至少备份：
+助手能运行电脑上已有的工具，不等于已经自带 Keil、STM32CubeIDE、交叉编译器、烧录器或实际开发板。缺少工具时先补齐；电脑上的代码检查也不能代替上板验证。
 
-```text
-config.toml
-```
+<a id="s1-12"></a>
+## 1.12 查看变更、处理审批与恢复文件
 
-例如复制为：
+### 查看变更
 
-```text
-config.toml.backup
-```
+1. 每个任务结束后查看它列出的修改文件。
+2. 如果界面有差异视图，逐个打开；没有时，用编辑器或文件比较工具对照备份。
+3. 检查是否只改了要求的文件，是否删掉了原有功能或测试。
+4. 使用原项目的验证步骤重新检查，不只看“任务完成”四个字。
 
-不要公开分享：
+### 处理审批
 
-- `auth.json`
-- 完整 API Key
-- OAuth Token
+读取、编辑和运行命令是不同操作，是否询问取决于当前权限策略。**不要为了减少弹窗，直接把所有权限都改成自动允许。**
 
----
+看到审批时，看清工作目录、文件路径和实际命令；允许与当前任务对应的操作。工作区选择不是绝对沙箱，完整的 shell 命令可能做更多事情，重要文件仍需备份。
 
-# 8. 开启 CC Switch 的官方登录保护
+### 恢复
 
-打开：
+- 只是某段文字不满意：在原会话说明准确修改目标。
+- 要精确恢复：使用备份或 Git 记录，不依赖模型记忆。
+- 恢复前先停止当前任务，避免它一边运行一边再次写入文件。
+- 关闭网页、停止服务或删除会话，都不会自动撤销已经落盘的修改。
+- 不确定某个“撤销”按钮会影响哪些文件时，先看范围，再操作。
 
-```text
-CC Switch
-→ 设置
-→ 通用
-→ Codex 应用增强
-```
+<a id="s1-13"></a>
+## 1.13 第二天继续、停止服务与更新
 
-找到：
+### 正常停止
 
-```text
-切换第三方时保留官方登录
-```
+1. 等任务完成，或使用界面提供的停止操作结束任务。
+2. 回到启动 Harness 的 PowerShell 窗口。
+3. 按 Ctrl+C，等待返回 `PS ...>` 提示符。
+4. 再关闭浏览器页面和终端窗口。仅关闭浏览器通常不会停止后台服务。
 
-将其开启。
+### 下次继续
 
-建议长期保持开启。
-
-目标是：
-
-```text
-auth.json
-→ 继续保存官方 ChatGPT 登录
-
-config.toml
-→ CC Switch 管理第三方 Provider
-```
-
-这样 DeepSeek API Key 就不会取代 Codex 官方 OAuth 身份。
-
----
-
-# 9. 添加 DeepSeek
-
-进入：
-
-```text
-CC Switch
-→ Codex
-→ 添加供应商
-```
-
-优先选择最新版内置：
-
-```text
-DeepSeek
-```
-
-预设。
-
-不建议第一次配置时手工填写：
-
-- `base_url`
-- `wire_api`
-- `model_provider`
-- `model_catalog_json`
-- 旧版 Chat Completions 参数
-- 旧版本地路由参数
-
----
-
-# 10. 填写 DeepSeek API Key
-
-在 DeepSeek Provider 中填写：
-
-```text
-DeepSeek API Key
-```
-
-例如：
-
-```text
-sk-xxxxxxxxxxxxxxxx
-```
-
-然后保存。
-
-注意：
-
-```text
-DeepSeek API Key
-≠
-OpenAI API Key
-
-DeepSeek API Key
-≠
-ChatGPT 登录凭据
-```
-
----
-
-# 11. 检查是否为原生 Responses 配置
-
-新版 DeepSeek 已经可以通过原生 Responses API 与 Codex 对接。
-
-推荐目标：
-
-```text
-DeepSeek
-+
-Responses / Native Responses
-+
-https://api.deepseek.com
-```
-
-DeepSeek 官方 Codex 接入文档：
-
-- https://api-docs.deepseek.com/quick_start/agent_integrations/codex/
-
-DeepSeek Responses API 文档：
-
-- https://api-docs.deepseek.com/zh-cn/guides/responses_api/
-
----
-
-## 如果仍显示 `Needs Routing`
-
-本文不推荐继续使用旧路由方案。
-
-应该：
-
-1. 更新 CC Switch 到最新版；
-2. 完全退出 Codex；
-3. 删除旧 DeepSeek Provider；
-4. 使用最新版 DeepSeek 预设重新添加；
-5. 重新填写 DeepSeek API Key；
-6. 确认 Provider 使用 Responses / Native Responses；
-7. 不使用旧版协议转换路由。
-
----
-
-# 12. 启用 DeepSeek
-
-在 CC Switch：
-
-```text
-Codex
-→ DeepSeek
-→ 启用 / 切换
-```
-
-确认当前 Provider 已经变成：
-
-```text
-DeepSeek
-```
-
----
-
-# 13. 为什么需要重启 Codex
-
-切换 Provider 后，建议：
-
-```text
-完全退出 Codex
-↓
-重新打开
-```
-
-因为 Provider 切换可能改变：
-
-- 模型目录
-- `model_provider`
-- Base URL
-- Provider metadata
-
-不要假定 Codex 一定能够完整热刷新这些内容。
-
-推荐统一使用：
-
-```text
-切 Provider
-→ 重启 Codex
-```
-
----
-
-# 14. 成功后的正常表现
-
-成功后可能出现：
-
-```text
-Codex 账号：
-仍然是你的 ChatGPT 官方账号
-
-模型：
-DeepSeek
-```
-
-这是正确状态。
-
-再次运行：
+1. 打开 PowerShell。
+2. 切换到需要处理的项目目录：
 
 ```powershell
-codex login status
+Set-Location -LiteralPath 'D:\你的项目路径'
+npx.cmd @deepseek-ai/dsh web
 ```
 
-仍然应该看到：
+3. 打开终端打印的本机地址。
+4. 选中对应工作区和模型。
+5. 如果侧边栏有之前的会话，可打开继续；新目标新建会话。
+6. 密钥在正常保存且配置未变的情况下不必每天重新创建。若提示缺少凭据，回到 1.8 节检查。
 
-```text
-Logged in using ChatGPT
-```
+上述 `D:\你的项目路径` 是占位示例，要替换成真实路径；没有 D 盘就使用自己的 C 盘项目路径。
 
-而不是：
+### 更新
 
-```text
-Logged in using an API key
-```
-
----
-
-# 15. 如何确认请求真的走 DeepSeek
-
-可以通过以下几种方法判断。
-
-## 方法一：看 Codex 模型名称
-
-当前模型显示为：
-
-```text
-DeepSeek ...
-```
-
-## 方法二：看 CC Switch
-
-当前 Provider 显示：
-
-```text
-DeepSeek
-```
-
-## 方法三：看 CC Switch 请求记录
-
-如果启用了请求统计，可以查看最近请求对应的 Provider。
-
-## 方法四：看 DeepSeek API 后台
-
-运行 Codex 一段时间后查看：
-
-```text
-API Usage
-```
-
-如果产生调用记录或余额变化，说明请求确实进入 DeepSeek。
-
----
-
-# 16. 为什么 DeepSeek 模式下只有 DeepSeek 模型
-
-这是正常现象。
-
-当：
-
-```text
-Provider = DeepSeek
-```
-
-Codex 当前模型目录可能只显示 DeepSeek 模型。
-
-这不代表：
-
-```text
-ChatGPT 官方登录消失
-GPT 权限丢失
-账号被注销
-```
-
-只是当前 Provider 已切换为 DeepSeek。
-
-切回：
-
-```text
-OpenAI Official
-```
-
-并重启 Codex 后，官方 GPT 模型通常会重新出现。
-
----
-
-# 17. 如何从 DeepSeek 切回 GPT
-
-推荐流程：
-
-```text
-1. 完全退出 Codex
-
-2. 打开 CC Switch
-
-3. Codex
-   → OpenAI Official
-
-4. 确认不再使用旧版协议转换路由
-
-5. 重新启动 Codex
-```
-
-一般不需要重新登录 ChatGPT。
-
----
-
-# 18. 如何重新切回 DeepSeek
-
-推荐流程：
-
-```text
-1. 完全退出 Codex
-
-2. 打开 CC Switch
-
-3. Codex
-   → DeepSeek
-   → 启用
-
-4. 确认使用原生 Responses 配置
-
-5. 重新启动 Codex
-```
-
-不需要重新输入 ChatGPT 账号。
-
----
-
-# 19. 是否可以热切换
-
-可以快速切换 CC Switch Provider。
-
-但是不建议依赖 Codex 对以下内容进行完整热刷新：
-
-- Provider
-- Base URL
-- 模型目录
-- 模型 metadata
-
-因此最稳妥的方法仍然是：
-
-```text
-切换 CC Switch Provider
-+
-重启 Codex
-```
-
-不需要重新登录账号。
-
----
-
-# 20. 旧配置需要路由时怎么办
-
-如果你的旧 DeepSeek Provider 显示：
-
-```text
-Needs Routing
-```
-
-或者依赖：
-
-```text
-127.0.0.1:15721
-```
-
-等本地协议转换地址，本文建议直接迁移，而不是继续维护旧路由。
-
-迁移步骤：
-
-```text
-1. 完全退出 Codex
-
-2. 更新 CC Switch 到最新版
-
-3. 备份 ~/.codex/config.toml
-
-4. 删除 CC Switch 中旧 DeepSeek Provider
-
-5. 使用最新版 DeepSeek 预设重新创建
-
-6. 重新填写 API Key
-
-7. 确认 Base URL 为：
-   https://api.deepseek.com
-
-8. 确认使用：
-   Responses / Native Responses
-
-9. 不启用旧 Codex Local Routing
-
-10. 启用 DeepSeek
-
-11. 重启 Codex
-```
-
----
-
-# 21. 401 Unauthorized 的原因与修复
-
-典型报错：
-
-```text
-401 Unauthorized
-
-Incorrect API key provided: sk-xxxx
-
-https://api.openai.com/v1/responses
-
-invalid_api_key
-```
-
-如果你刚从 DeepSeek 切回 OpenAI 后遇到这种错误，通常意味着：
-
-```text
-请求地址：
-OpenAI
-
-认证 Key：
-仍然是 DeepSeek API Key
-```
-
-实际过程：
-
-```text
-DeepSeek API Key
-↓
-被发送给 api.openai.com
-↓
-OpenAI 无法识别
-↓
-401 invalid_api_key
-```
-
----
-
-## 21.1 第一件事：检查登录状态
-
-运行：
+1. 先停止运行中的服务，备份重要项目和自己修改过的助手配置。
+2. 在项目目录执行：
 
 ```powershell
-codex login status
+npx.cmd @deepseek-ai/dsh@latest web
 ```
 
-如果看到：
+3. 阅读安装和启动输出，确认没有错误。
+4. 更新后先回练习项目做一次小任务，再处理重要项目。
 
-```text
-Logged in using an API key - sk-xxxx
-```
+开发者预览版可能调整配置或界面；出现兼容问题时先查[官方项目说明](https://github.com/deepseek-ai/deepseek-harness)，不要通过随意删除全部用户配置来“重装”。
 
-说明 Codex 当前认证已经被 API Key 登录取代。
+<a id="s1-14"></a>
+## 1.14 确认使用的是 DeepSeek，并查看 API 用量
 
----
+1. 查看 Harness 模型选择器，确认选择的是 DeepSeek 下的 `deepseek-flash`。
+2. 使用内置 DeepSeek 官方配置，不把地址改成中转商。
+3. 记录一次练习任务的开始和结束时间。
+4. 打开 DeepSeek 开放平台，找到“用量”“账单”或对应入口。
+5. 选择同一天的时间范围，刷新查看统计；后台记录可能延迟。
+6. 如果同时在 Codex 或其他客户端中使用这把密钥，先停止其他调用再做一次短任务，便于核对。
 
-## 21.2 修复方法
+一个“修复并测试”的任务可能包含多轮模型请求。读取大仓库、长对话、反复运行修复、很高的思考强度，都可能增加用量；不要把一次任务按一条短聊天估算。
 
-先在 CC Switch：
+模型说“我是 DeepSeek”不算证据。应结合所选供应商、模型、目标接口和官方后台记录判断；费用很小时，余额显示位数也可能看不出变化。
 
-```text
-Codex
-→ OpenAI Official
-```
+<a id="s1-15"></a>
+## 1.15 项目助手常见问题：按现象一步一步排查
 
-然后运行：
+| 现象 | 按顺序处理 |
+| --- | --- |
+| `node`、`npx.cmd` 无法识别 | ① 确认 Node.js 安装完成；② 重开终端；③ 按 1.5 节检查版本与 PATH |
+| Node.js 版本不满足要求、EBADENGINE | ① 查看 `node --version`；② 安装符合 1.5 节要求的版本；③ 重开终端再试 |
+| npm 下载超时、连接失败 | ① 换正常网络或手机热点；② 核对系统代理与单位策略；③ 按下面“安装网络问题”处理；这不是 API Key 错误 |
+| 无法加载本机组件、缺少平台二进制 | ① 保存具体错误；② 核对 Windows 架构和 Node.js 版本；③ 查当前包的官方兼容说明；不能靠换 API Key 修复 |
+| 浏览器打不开本机界面 | ① 确认启动窗口仍运行；② 使用终端打印的实际地址；③ 查看启动错误；④ 不要把 `127.0.0.1` 改成远程网站 |
+| 端口已占用、EADDRINUSE | ① 检查是否已经启动一个实例；② 使用已有实例或正常停止自己启动的旧实例；③ 不要结束不认识的系统进程 |
+| 输入框不可用 | ① 添加并选中工作区；② 选择已配置的模型；③ 确认当前会话可用 |
+| MISSING_CREDENTIAL、401 | ① 回设置中的 DeepSeek 卡片；② 重新保存完整密钥；③ 确认未撤销；④ 用 1.16 节独立诊断 |
+| 402、余额不足 | ① 检查密钥所属账户；② 在 DeepSeek 开放平台检查额度；③ 必要时充值再试 |
+| UNKNOWN_MODEL、400、422 | ① 核对 `deepseek-flash`；② 更新客户端并使用内置 DeepSeek 配置；③ 查看具体参数错误，不手填猜测字段 |
+| 429 | ① 停止并行任务；② 等待后试一次小任务；③ 减少频繁重复请求 |
+| 500、503、请求超时 | ① 等待后重试；② 核对服务和网络；③ 不不停重复点击；超时不保证服务器没有产生用量 |
+| 能聊天但不读取文件 | ① 选对工作区；② 明确要求用文件工具读取；③ 检查工具权限与实际记录 |
+| 只贴代码而不修改 | ① 明确要求直接写入指定文件；② 检查是否处于只读限制；③ 批准必要编辑；④ 去磁盘检查 |
+| 能改文件但不能运行测试 | ① 检查命令权限；② 核对工作目录；③ 查看缺少的程序；④ 先在另一个终端手动执行同一命令排除环境问题 |
+| 命令行里的命令在 Windows 不适用 | 告诉助手“当前是 Windows，请使用本机可用的命令环境”，让它报告实际 shell；不要把 Linux 命令直接当 PowerShell 执行 |
+| 助手显示成功，文件却没变 | ① 核对工作区绝对路径；② 确认不是仅提出修改建议；③ 查看实际写入记录；④ 检查磁盘内容 |
+
+DeepSeek 错误码依据：[官方错误码说明](https://api-docs.deepseek.com/zh-cn/quick_start/error_codes/)；Harness 的凭据和模型错误见[模型配置与排错](https://deepseek-harness.github.io/deepseek-harness/guide/providers)。
+
+### 安装网络问题
+
+npm 软件安装与模型 API 调用是两条网络链路。模型能直连，不代表软件包下载一定成功。
+
+先在正常网络重试。如果官方 npm 源持续下载失败，也可以在自己接受第三方软件镜像来源的前提下，仅对本次启动使用国内 npm 镜像：
 
 ```powershell
-codex logout
-codex login
+npx.cmd --registry=https://registry.npmmirror.com @deepseek-ai/dsh web
 ```
 
-选择：
+这个地址是第三方 npm 软件镜像，不是 DeepSeek API，也不需要把 API Key 交给镜像。镜像可能同步延迟，出现包不存在或版本落后时回到官方源；不要因此去下载陌生人发来的修改版安装包。它也不保证能覆盖软件安装过程中所有额外下载。
 
-```text
-Sign in with ChatGPT
-```
+若当前网络始终无法获取所需软件包，应先解决安装资源可达性；不能把“未启动客户端”写成“DeepSeek API 不支持项目功能”。
 
-最后检查：
+<a id="s1-16"></a>
+## 1.16 可选排障：绕过助手，独立测试 API
+
+**本节只是定位密钥、余额和网络问题，不提供读写项目或运行命令的助手能力。**正常完成前面的项目练习后，不必再做本节。
+
+适用情况：Harness 返回认证或连接错误，你想知道问题在 API 账户还是在客户端。
+
+1. 另开一个 PowerShell 窗口，不关闭正在运行服务的窗口。
+2. 运行下面一行：
 
 ```powershell
-codex login status
+$dsSecureKey = Read-Host "请粘贴 DeepSeek API Key，再按回车" -AsSecureString
 ```
 
-必须恢复为：
-
-```text
-Logged in using ChatGPT
-```
-
-然后重启 Codex。
-
----
-
-# 22. `config.toml` 排查指南
-
-Windows：
-
-```text
-C:\Users\你的用户名\.codex\config.toml
-```
-
-macOS / Linux：
-
-```text
-~/.codex/config.toml
-```
-
-恢复官方状态时，重点检查：
-
-```toml
-model_provider = "custom"
-```
-
-以及：
-
-```toml
-[model_providers.custom]
-```
-
-同时观察：
-
-```toml
-base_url = "..."
-```
-
-```toml
-experimental_bearer_token = "sk-..."
-```
-
-```toml
-model_catalog_json = "..."
-```
-
-不要看到：
-
-```toml
-[model_providers.custom]
-```
-
-就立刻删除。
-
-真正应该判断的是：
-
-```text
-这个 Provider 是谁？
-Base URL 指向哪里？
-有没有第三方 API Key？
-有没有第三方模型目录？
-login status 当前是什么？
-```
-
----
-
-# 23. Windows 环境变量排查
-
-如果已经恢复 ChatGPT 登录，但请求仍然拿旧 API Key，可以检查环境变量。
-
-PowerShell：
+3. 出现输入提示后粘贴密钥，按回车；不要把密钥当命令输入。
+4. 再运行下面整个代码块。这会产生一次真实 API 请求：
 
 ```powershell
-Get-ChildItem Env: | Where-Object {
-    $_.Name -match 'OPENAI|CODEX|API_KEY|BASE_URL'
+$dsKey = [System.Net.NetworkCredential]::new("", $dsSecureKey).Password.Trim()
+$dsDiagnosticHeaders = @{ Authorization = "Bearer $dsKey" }
+Remove-Variable dsKey, dsSecureKey
+
+$dsDiagnosticBody = @{
+    model = "deepseek-flash"
+    messages = @(
+        @{ role = "user"; content = "请只回复：API连接成功。" }
+    )
+    thinking = @{ type = "disabled" }
+    max_tokens = 128
+    stream = $false
+} | ConvertTo-Json -Depth 10
+
+$dsDiagnosticParams = @{
+    Uri = "https://api.deepseek.com/chat/completions"
+    Method = "Post"
+    Headers = $dsDiagnosticHeaders
+    ContentType = "application/json; charset=utf-8"
+    Body = [Text.Encoding]::UTF8.GetBytes($dsDiagnosticBody)
+    TimeoutSec = 180
+    ErrorAction = "Stop"
+}
+$dsDiagnosticReply = $null
+try {
+    $dsDiagnosticReply = Invoke-RestMethod @dsDiagnosticParams
+    $dsDiagnosticReply.choices[0].message.content
+    $dsDiagnosticReply.usage | Format-List
+}
+finally {
+    Remove-Variable dsDiagnosticHeaders, dsDiagnosticParams -ErrorAction SilentlyContinue
 }
 ```
 
-重点观察：
+5. 若返回中文回答，说明这把密钥的基本 API 调用可用。回到 Harness 检查其配置、模型、工具与权限；一次短文本成功不保证所有工具调用也兼容。
+6. 若仍报 401、402 或连接错误，按 1.15 节处理对应问题。
+7. 完成后关闭这个诊断窗口，不打印或公开请求头。
 
-```text
-OPENAI_API_KEY
-CODEX_API_KEY
-OPENAI_BASE_URL
-```
+请求格式依据：[DeepSeek 官方请求示例](https://api-docs.deepseek.com/api_samples/chat_curl/)。这里使用 Chat Completions 只为做最小诊断；不要把这段 PowerShell 当成项目助手本身。
 
-如果其中仍然存在旧的第三方 Key，需要进一步清理。
+<a id="s1-17"></a>
+## 1.17 第一章完成检查
+
+- [ ] 已创建 DeepSeek API Key，且账户有可用额度。
+- [ ] 已在本地启动 Harness 并打开浏览器界面。
+- [ ] 已选择自己的项目工作区和 `deepseek-flash`。
+- [ ] 助手实际读取了 README 和代码文件。
+- [ ] 助手实际运行测试，并发现预设错误。
+- [ ] 助手直接修改了磁盘上的源代码和测试文件。
+- [ ] 自己重新运行后，3 个测试通过、退出码为 0。
+- [ ] 能找到官方用量记录，理解一次任务可能多次调用 API。
+- [ ] 知道怎样停止服务、备份和恢复文件。
+- [ ] 全程未使用 Codex 或 ChatGPT 账号，模型请求直连 DeepSeek。
+
+**达到这些标准，才完成本章目标：把 DeepSeek API 作为能按项目工作的本地助手使用。**它与 Codex 属于相同的工作方式，但界面、工具覆盖、稳定性和权限机制不保证完全一致。
 
 ---
 
-## 23.1 检查 `.env`
+<a id="chapter-2"></a>
+# 第二章：Codex保姆级使用指南
 
-可以检查：
+<a id="s2-1"></a>
+## 2.1 使用条件、账号与费用
+
+Codex 可以读你选定的项目文件，按要求修改文件、运行命令并检查结果。它不仅能回答问题，还可能直接改动电脑里的文件，因此第一次练习使用一个专门的新文件夹。
+
+先分清三个东西：
+
+| 名称 | 作用 | 本章选择 |
+| --- | --- | --- |
+| 桌面界面 | 通过窗口、项目列表和任务输入框操作 | 主路线 |
+| Codex CLI | 在终端输入 `codex` 使用 | 2.8 节补充；排查登录时可能用到 |
+| 模型服务 | 实际生成回答和执行决策的模型 | 先用账户可用的官方 GPT 模型 |
+
+**大陆读者先看这里：**第一章的 DeepSeek 官方直连方案可以独立使用；本章的 OpenAI 官方登录和 GPT 服务有自己的地区、网络与账户条件，不能因为 DeepSeek 能直连，就承诺 GPT 也能在同样条件下使用。例如核对时 OpenAI API 支持地区列表不含中国大陆；ChatGPT 登录还应遵循其页面展示的地区和账户要求。[OpenAI API 支持地区](https://developers.openai.com/api/docs/supported-countries)
+
+如果官方页面提示地区不支持，或无法正常登录，不要继续反复改本地配置，也不要把“充值 DeepSeek”当成解锁 GPT 的方法。可以先使用第一章；本章后续默认你已经具备官方服务要求的使用条件。
+
+本章采用 **ChatGPT 账号登录**。可用模型、额度、是否需要升级，以自己的账户页面为准。OpenAI API Key 登录是另一种正常方式，API 费用与 ChatGPT 套餐分开；它不是本教程双供应商切换路线的默认选择。DeepSeek API 余额也不能抵扣 OpenAI 的费用。[官方认证说明](https://learn.chatgpt.com/docs/auth)
+
+<a id="s2-2"></a>
+## 2.2 下载、安装并启动桌面应用
+
+官方入口：[Codex / 桌面快速开始](https://developers.openai.com/codex/quickstart)、[Windows 桌面说明](https://learn.chatgpt.com/docs/windows/windows-app)。
+
+**名称提示：**核对时，部分原 Codex 桌面文档已跳转到 ChatGPT desktop app 文档。你可能看到 Codex 名称，也可能看到整合后的 ChatGPT 桌面入口；应以官方页面提供的当前下载入口为准。本文中的“Codex 桌面端”指能操作本地项目和任务的相应功能，不是随意找一个同名第三方软件。
+
+### Windows
+
+1. 在浏览器打开上面的官方 Windows 桌面说明。
+2. 找到页面提供的 Windows 下载或 Microsoft Store 安装链接。
+3. 如果跳转到 Microsoft Store，检查应用信息与发布者确为 OpenAI，再点击安装。
+4. 如果下载的是官方安装程序，打开浏览器下载列表，点击已下载的文件，按安装向导完成安装。
+5. 若提示系统版本或硬件不满足要求，先核对官方要求，不要安装来历不明的“兼容修改版”。
+6. 安装完成后，打开 Windows 开始菜单，搜索刚安装的应用名称并启动。
+7. 若提示更新，完成更新后重开应用。
+
+本章的简单文件练习不要求预先安装 Python、Node.js 或 WSL。以后做某个程序项目时，再根据项目需要安装相应工具。
+
+### macOS / Linux
+
+从官方快速开始页面选择自己的系统，按页面提供的安装入口操作。macOS 的安装包若要求拖入“应用程序”，完成后从“应用程序”启动；Linux 使用官方页面对应发行版的安装说明。以下桌面任务流程相同，Windows 的 PowerShell 命令不要原样粘贴到 Bash 或 zsh。
+
+**完成本节的标志：**打开了官方桌面应用，能看到登录或主界面。
+
+<a id="s2-3"></a>
+## 2.3 使用 ChatGPT 账号登录
+
+1. 在登录界面寻找“使用 ChatGPT 登录”“Sign in with ChatGPT”或“Continue / 继续”。
+2. 点击后，应用通常会打开浏览器。
+3. 在官方登录页面输入自己的账户信息；没有账号时，按页面提供的注册流程完成注册。
+4. 完成页面要求的邮箱验证、身份验证或多因素验证。
+5. 如果出现多个工作区，选择自己有权限使用的个人或组织工作区。
+6. 浏览器询问是否打开对应桌面应用时，确认返回应用。
+7. 回到桌面端，查看头像或账户菜单，确认是自己的账号。
+8. 如果页面提示无使用权限或额度不足，查看账户说明；有组织工作区时联系管理员确认权限。不要购买不明来源的共享账号。
+9. 先保持默认的官方模型配置，不在这里填写 DeepSeek API Key。
+
+如果浏览器显示登录成功，应用却仍停留在登录页：先确认浏览器授权已完成，再关闭并重新打开应用；仍失败时参考[第二章“2.12 Codex 常见问题”](#s2-12)。
+
+**完成本节的标志：**应用显示自己的账号，能够进入新任务界面。仅能看到头像，并不能证明模型请求已经成功，下一节继续实际验证。
+
+<a id="s2-4"></a>
+## 2.4 创建练习文件夹，并在 Codex 中打开
+
+### 第一步：在电脑上创建文件夹
+
+1. 按 `Win+E` 打开文件资源管理器。
+2. 点击左侧“文档”。
+3. 在空白处右键，选择“新建 → 文件夹”。
+4. 输入 `Codex入门练习`，按回车。
+5. 双击进入文件夹，确认里面没有重要文件。
+6. 点击文件资源管理器的地址栏，可以看到或复制它的完整路径。
+
+### 第二步：将文件夹交给 Codex
+
+1. 回到 Codex 桌面端。
+2. 在侧边栏寻找“添加项目”“Add project”“打开文件夹”或对应的加号入口。
+3. 在弹出的选择框中进入“文档”，选中 `Codex入门练习`。
+4. 点击“选择文件夹”或“打开”。
+5. 如果询问是否信任该目录，确认是自己刚创建的练习目录后再继续。
+6. 如果要求选择工作方式，本次选择“本地 / Local”，让生成文件落在刚才选中的目录。
+7. 选中这个项目，再点击“新任务”“New thread”或对应入口。
+
+“工作树 / Worktree”是为 Git 项目建立独立工作副本的方式，初次练习不需要用它。“云端 / Cloud”也不是打开本地文件夹的同义词。
+
+**完成本节的标志：**当前任务关联的目录是 `Codex入门练习`。如果选错项目，先切换，再发送任务。
+
+<a id="s2-5"></a>
+## 2.5 完成第一个任务：让 Codex 创建一份学习计划
+
+1. 查看输入框附近的模型选择菜单。
+2. 保持当前可用的官方默认模型即可；不要手工输入旧教程里的模型名。
+3. 保持默认权限设置。如果界面允许选择仅阅读和可修改文件等模式，本次需要允许在练习目录内创建文件。
+4. 把下面这段文字复制到任务输入框：
 
 ```text
-C:\Users\你的用户名\.codex\.env
+请在当前“Codex入门练习”文件夹中创建一个“学习计划.md”文件。
+内容用中文，面向刚开始学习单片机的学生。
+安排 3 天，每天包含：学习目标、一个小练习、完成标准。
+每天投入 30 分钟。不需要安装软件，不要联网，不要修改其他文件。
+完成后告诉我文件保存在哪里，以及你检查了哪些内容。
 ```
 
-是否存在。
+5. 点击发送按钮。
+6. 观察任务中的进度。如果它提出与需求相关的问题，直接在同一个任务里补充回答。
+7. 若弹出权限请求，阅读准备执行的操作和涉及路径。确认只是在练习目录创建文件后批准；如果目标路径不对，拒绝并说明正确路径。
+8. 等待任务完成。不要因为它开始执行命令就另开任务重复发送同一个要求。
 
-PowerShell：
+Codex 的“已完成”是一个需要检查的结果说明。下一节将实际打开文件核对。
+
+<a id="s2-6"></a>
+## 2.6 检查结果、继续修改，以及理解撤销
+
+### 检查文件是否真的生成
+
+1. 点击回复里的 `学习计划.md` 文件链接；如果没有链接，就回到文件资源管理器中的练习目录。
+2. 确认看到 `学习计划.md`。Windows 隐藏扩展名时可能只显示“学习计划”。
+3. 可以右键文件，选择“打开方式 → 记事本”，检查正文。
+4. 确认有 3 天内容，每天包含目标、练习、完成标准，且没有超出自己的要求。
+5. 如果应用有“变更”“Review”或差异视图，打开它，确认只改了预期文件。差异中常见的绿色表示新增，红色表示删除。
+
+### 继续提出修改
+
+回到**同一个任务**，发送：
+
+```text
+请把第 2 天改成学习 GPIO 输入与按键消抖，仍然控制在 30 分钟。
+保持第 1 天和第 3 天不变。修改后检查是否仍包含学习目标、小练习和完成标准。
+```
+
+等完成后重新打开文件，确认第二天变了，其他内容保持符合要求。
+
+### 不满意时怎么办
+
+- 只是内容不满意：明确告诉它要改哪一段，给出希望保留或恢复的内容。
+- 要精确回到原版本：使用修改前的副本或 Git 记录；不要只依靠模型“回忆”旧内容。
+- 应用有撤销功能：先查看撤销范围，再操作。不同版本按钮不同。
+- **归档或删除一个任务，不等于撤销它已写入磁盘的文件。**
+- 本地模式下，文件可能已经直接改好；不应以为“不点 Commit / 提交”就不会改变文件。
+
+真实项目开始前，先备份已有文件。简单办法是在文件资源管理器中复制整个项目文件夹，粘贴成一个带日期的副本；确保其中的重要文件已保存、程序已关闭。使用 Git 的项目则建立可恢复的提交记录。
+
+<a id="s2-7"></a>
+## 2.7 怎样提需求，才能让它一步步完成工作
+
+按“在哪里、做什么、保留什么、怎么验收”四点描述。下面可以直接替换后使用：
+
+```text
+请处理当前项目中的【文件名或目录】。
+目标：【最终想得到什么】。
+约束：【哪些内容必须保留，哪些文件不要修改】。
+验收：【完成后用什么操作或结果证明成功】。
+先阅读相关文件；如果信息足够，请完成修改并做必要检查。
+最后用中文列出修改内容、检查结果和仍需我处理的事项。
+```
+
+例如在本仓库中，可以这样提：
+
+```text
+请阅读当前项目的 README.md，用中文概括目录用途。
+现在只解释，不修改文件。请说明我应该从哪个文件开始阅读。
+```
+
+或者：
+
+```text
+请修改当前项目中的实验记录模板，增加“现象、可能原因、验证方法”三项。
+保留原有日期和实验目的。完成后检查标题层级和表格列数是否一致。
+```
+
+一次先完成一个明确目标。遇到报错，把错误文字、执行步骤和相关文件路径发给它；不要只说“不能用”。
+
+需要运行程序时，让它说明实际运行了什么、是否成功。没有运行环境、硬件或密钥时，它可能只能检查代码，不能据此证明实物电路或 API 已经工作。
+
+
+<a id="s2-8"></a>
+## 2.8 可选：安装 Codex CLI，解决“找不到 codex 命令”
+
+**只做前面的桌面练习，可以跳过本节。**第三章需要用命令检查登录状态时，再回来操作。安装桌面应用并不保证 Windows 的普通 PowerShell 一定能识别 `codex`。
+
+### 先检查是否已有命令
+
+按[第一章“1.5 安装 Node.js，并确认能启动助手”](#s1-5)中的“第二步”打开 PowerShell，**这里不需要输入 DeepSeek 密钥**，然后运行：
 
 ```powershell
-Test-Path "$HOME\.codex\.env"
+codex --version
 ```
 
-如果返回：
+- 显示版本号：已经可以使用 CLI，转到 2.9 节。
+- 提示无法识别：按下面步骤安装 CLI。
+- 提示 `codex.ps1` 被禁止运行：如果是 npm 安装，可以尝试 `codex.cmd --version`。下文其他 `codex` 命令也相应写成 `codex.cmd`，不必为了教程把系统执行策略全面放开。
 
-```text
-True
+### Windows 的 npm 安装路线
+
+官方提供多种 CLI 安装方式，可在[Codex CLI 官方页面](https://learn.chatgpt.com/docs/codex/cli)选择 Windows 或 npm 标签查看当前说明。下面采用 npm 路线：
+
+1. 浏览器打开 [Node.js 官网](https://nodejs.org/)。
+2. 下载适合自己 Windows 系统的 LTS 安装程序。
+3. 双击安装程序，按向导安装，保留 npm 和 PATH 相关默认选项。普通入门不需要额外勾选安装所有原生编译工具。
+4. 安装后关闭旧 PowerShell，重新打开一个窗口。
+5. 依次执行下面两行，确认都显示版本号：
+
+```powershell
+node --version
+npm.cmd --version
 ```
 
-可以查看变量名，但不要公开完整 API Key。
+6. 然后执行：
 
----
-
-# 24. 不同用户应该从哪里开始
-
-## A. Codex 和 DeepSeek 都没用过
-
-```text
-安装 Codex
-↓
-使用 ChatGPT 官方登录
-↓
-确认 GPT 正常
-↓
-安装 CC Switch
-↓
-开启“切换第三方时保留官方登录”
-↓
-创建 DeepSeek API Key
-↓
-添加 DeepSeek
-↓
-启用 DeepSeek
-↓
-重启 Codex
+```powershell
+npm.cmd install -g @openai/codex
 ```
 
----
+7. 等待安装结束。如果出现错误，先处理错误，不要把“出现很多文字”当成安装成功。
+8. 再执行：
 
-## B. 已经使用 Codex
+```powershell
+codex.cmd --version
+```
 
-先检查：
+9. 显示版本号即安装完成。以后使用 npm 路线更新时，再执行一次第 6 步即可。
+
+若第 8 步仍无法识别，先关闭并重新打开 PowerShell；仍失败时，回到官方 CLI 页面检查安装说明和 PATH。不要到陌生下载站寻找 `codex.exe`。
+
+原指南中寻找 `CODEX_CLI_PATH` 的方法只适用于已有该字段的特定环境，**它不是每个安装都会提供的标准路径**，因此本教程不让新手依赖它。
+
+### 用 CLI 打开同一个练习目录
+
+1. 在文件资源管理器中打开 `Codex入门练习`。
+2. 点击地址栏，复制完整路径。
+3. 在 PowerShell 输入下面命令，把示例路径替换成刚复制的真实路径：
+
+```powershell
+Set-Location -LiteralPath 'C:\Users\你的用户名\Documents\Codex入门练习'
+codex.cmd
+```
+
+4. 如果要求登录，按 2.9 节处理。
+5. 进入交互界面后，输入“请阅读学习计划.md，概括三天安排，不修改文件”，按回车。
+6. 需要结束时按界面提示退出，通常可使用 Ctrl+C；如果一次只停止当前操作，再按提示退出会话。
+
+**注意：**在 CLI 交互界面里发任务；在普通 `PS ...>` 提示符下运行 `codex login status` 等外部命令。不要把两种输入位置混在一起。
+
+<a id="s2-9"></a>
+## 2.9 检查登录状态与重新登录
+
+本节是第三章引用的统一登录操作，不必在第三章重复安装或注册。
+
+1. 确认 2.8 节的 CLI 命令可以运行；不使用 CLI 时，也可先在桌面头像菜单查看账户。
+2. 在普通 PowerShell 提示符下执行：
 
 ```powershell
 codex login status
 ```
 
-确认：
+如果你使用 npm 的 `.cmd` 入口，写成：
 
-```text
-Logged in using ChatGPT
+```powershell
+codex.cmd login status
 ```
 
-然后：
+常见结果及含义：
 
-```text
-安装 CC Switch
-↓
-开启保留官方登录
-↓
-添加 DeepSeek
+| 结果 | 含义 |
+| --- | --- |
+| `Logged in using ChatGPT` 或同义提示 | 当前 CLI 使用 ChatGPT 登录 |
+| `Logged in using an API key` 或同义提示 | 当前 CLI 使用 API Key 登录；这种方式本身有效，但不是本文第三章的预期官方登录方式 |
+| 未登录 | 需要登录 |
+
+若要建立本文推荐的 ChatGPT 登录状态：
+
+1. 先结束正在运行的任务，完全退出桌面端。
+2. 如果曾使用 CC Switch，先按[第三章“3.6 从 DeepSeek 切回 GPT”](#s3-6)切回官方供应商；首次使用且从未配置第三方的读者可直接继续。
+3. 运行 `codex logout`，清除当前 CLI 登录；如果尚未登录，可以直接下一步。
+4. 运行 `codex login`。
+5. 按浏览器提示完成 ChatGPT 登录，具体账户操作见[第二章“2.3 使用 ChatGPT 账号登录”](#s2-3)。
+6. 再执行 `codex login status`，确认显示 ChatGPT 登录。
+7. 重开桌面端，确认账户，并新建一个简单任务验证。
+
+相应的 npm 入口命令是 `codex.cmd logout`、`codex.cmd login`、`codex.cmd login status`。
+
+**CLI 的登录结果只证明这套 CLI 配置的状态。**如果桌面端使用了不同的配置目录，不能仅凭 CLI 输出判断桌面端；还要检查桌面账户和实际请求。使用不同目录的问题见下一节。
+
+官方依据：[认证方式、登录状态与凭据存储](https://learn.chatgpt.com/docs/auth)。
+
+<a id="s2-10"></a>
+## 2.10 找到配置目录并备份
+
+默认配置目录：
+
+| 系统 | 默认位置 |
+| --- | --- |
+| Windows | `C:\Users\你的用户名\.codex` |
+| macOS / Linux | `~/.codex` |
+
+如果设置了 `CODEX_HOME`，配置目录可能不同。Windows 可在 PowerShell 执行：
+
+```powershell
+$env:CODEX_HOME
 ```
+
+空白通常表示当前进程没有设置这个变量；若显示路径，以实际使用的配置目录为准。桌面进程与终端进程可能继承了不同环境，不能仅改一个终端就认定所有应用都改变了。
+
+默认目录的图形操作步骤：
+
+1. 先等任务结束并完全退出 Codex。
+2. 按 `Win+E` 打开文件资源管理器。
+3. 点击地址栏，输入 `%USERPROFILE%\.codex`，按回车。
+4. 找到 `config.toml`。若没有，确认运行过 Codex，并检查是否用了自定义目录。
+5. 复制该文件，粘贴到自己新建的本地备份文件夹，例如“文档”中的 `Codex配置备份-日期`。
+6. 备份副本可以命名为 `config.toml.backup`。在“查看”中启用“文件扩展名”，避免改名后自己看不出实际扩展名。
+7. 记住备份位置。第三章会要求在修改供应商前完成这一步。
+
+常见文件：
+
+- `config.toml`：模型、供应商和其他配置。
+- `auth.json`：某些安装用它保存认证信息；也可能使用系统凭据库，因此没有这个文件不等于没登录。
+- 模型目录文件：由具体接入工具生成，第三方工具可能在配置中引用它。
+
+配置文件本身也可能含密钥，备份同样要私密保存。不要把整个 `.codex` 发给别人。**备份配置不是完整备份账号登录；也不保证备份了所有项目内容。**重新登录按 2.9 节操作。
+
+<a id="s2-11"></a>
+## 2.11 完全退出、更新和日常使用
+
+### 完全退出
+
+1. 等当前任务完成，或点击停止。
+2. 保存自己还没保存的文件。
+3. 通过应用菜单里的“退出 / Quit”关闭应用。
+4. 检查 Windows 右下角系统托盘；如果还有应用图标，右键选择退出。
+5. 如果程序无响应，最后才使用任务管理器结束明确属于该应用的进程，不要误关其他工作程序。
+
+### 日常使用顺序
+
+1. 打开 Codex。
+2. 选对项目文件夹。
+3. 查看当前模型和供应商是否符合预期。
+4. 为新目标创建新任务；对同一目标的修改留在原任务继续。
+5. 写清目标、约束和验收方法。
+6. 完成后打开文件、检查变更，并进行实际验证。
+7. 需要保留的成果备份或提交到自己的版本管理中。
+
+桌面应用按自己的设置或安装渠道更新；CLI 按它自己的安装方式更新。更新其中一个不保证另一个同时更新。
+
+<a id="s2-12"></a>
+## 2.12 Codex 常见问题
+
+| 问题 | 处理顺序 |
+| --- | --- |
+| 官方登录页面打不开、提示地区不可用 | 回看“2.1 使用条件、账号与费用”；先确认服务条件，不靠改密钥解决 |
+| 登录后桌面仍未登录 | 完成浏览器授权 → 确认允许返回应用 → 重开应用 → 按 2.9 节检查 |
+| 提示额度不足 | 查看当前账户或工作区用量、重置时间；API Key 用户查看对应 API 账单；DeepSeek 充值不会增加 GPT 额度 |
+| 模型菜单没有教程里的某个 GPT 名称 | 使用自己当前可用的官方模型；先确认账户权限和应用更新，不照抄旧模型 ID |
+| 找不到文件 | 核对当前项目和本地/工作树位置，要求 Codex 给出完整保存路径，再用资源管理器查找 |
+| 只给出代码，没有创建文件 | 明确要求“请直接在当前目录创建指定文件”，并确认当前权限允许写入 |
+| 提示不能运行某个程序 | 查看缺少什么运行环境；按项目要求安装，不能把生成代码当成程序已运行成功 |
+| 请求批准时不知该选什么 | 查看动作和路径；不理解时让它解释具体用途，避免直接开放全部权限 |
+| `codex` 命令不存在 | 按 2.8 节安装或修复 CLI，与桌面端是否装好是两回事 |
+| 普通对话能用，某个插件不能用 | 插件可能有自己的账号、权限或环境要求，应单独排查 |
+
+<a id="s2-13"></a>
+## 2.13 第二章完成检查
+
+- [ ] 理解官方服务的使用条件，已正常登录自己的账号。
+- [ ] 能选中一个本地文件夹创建任务。
+- [ ] 用官方模型完成了一次实际任务。
+- [ ] 在文件资源管理器中确认生成文件，并能继续修改。
+- [ ] 知道任务删除、归档与文件撤销不是同一件事。
+- [ ] 需要第三方接入时，能检查登录状态并备份配置。
 
 ---
 
-## C. 只使用过 DeepSeek 网页或 App
 
-你还需要：
+<a id="chapter-3"></a>
+# 第三章：便捷地同时使用GPT与DeepSeek
+
+本章由原有“DeepSeek 接入 Codex”教程整理而来，保留供应商管理、官方登录保留、模型切换、旧路由迁移和故障排查。注册、充值、安装、登录、基础使用与备份已经移到前两章，下面直接引用具体小节。
+
+目标是保留两种使用方式：
 
 ```text
-DeepSeek API Key
+使用 GPT：
+Codex → 官方 OpenAI 服务 → 按自己的官方账户方式计费/扣减额度
+
+使用 DeepSeek：
+Codex → DeepSeek 官方 API → 使用 DeepSeek API 额度
+
+CC Switch：
+帮助切换当前供应商与相关配置
 ```
 
-然后：
+这里不保证一个模型菜单永久同时列出两家模型，也不保证两个窗口在共享同一配置时能各自稳定使用不同供应商。初学者采用**结束任务 → 完全退出 → 切换供应商 → 重开并新建任务**的方式。
+
+<a id="s3-1"></a>
+## 3.1 开始前的检查
+
+| 必备条件 | 没完成时阅读 |
+| --- | --- |
+| 自己的 DeepSeek API Key 和可用余额 | [第一章“1.3 确认余额并完成必要的充值”](#s1-3)、[“1.4 创建并保管 API Key”](#s1-4) |
+| DeepSeek 本地项目助手已可用 | [第一章“1.10 让助手修改文件，并实际运行测试”](#s1-10)、[“1.14 确认使用的是 DeepSeek，并查看 API 用量”](#s1-14)；仅诊断密钥时看[“1.16 可选排障：绕过助手，独立测试 API”](#s1-16) |
+| 官方 GPT 在 Codex 中能够工作 | [第二章“2.3 使用 ChatGPT 账号登录”](#s2-3)至[“2.6 检查结果、继续修改，以及理解撤销”](#s2-6) |
+| 准备保留 ChatGPT 登录 | [第二章“2.9 检查登录状态与重新登录”](#s2-9) |
+| 已备份当前正常配置 | [第二章“2.10 找到配置目录并备份”](#s2-10) |
+| 知道怎样完全退出应用 | [第二章“2.11 完全退出、更新和日常使用”](#s2-11) |
+
+**先让两边各自能用，再把它们接起来。**如果第一章“1.16 可选排障：绕过助手，独立测试 API”的请求也返回 401 或余额不足，先修复 DeepSeek API；CC Switch 不能让无效密钥变有效。
+
+<a id="s3-2"></a>
+## 3.2 理解“官方登录”和“当前供应商”
+
+- **官方登录**：你在 Codex 中使用哪个 ChatGPT/OpenAI 账户。
+- **供应商 / Provider**：当前模型请求发给哪一家服务。
+- **模型**：该供应商下具体调用哪一个模型。
+- **CC Switch**：管理这些供应商配置的第三方工具，不是 OpenAI 或 DeepSeek 官方服务本身。
+
+因此，在支持保留官方登录的配置下，“应用显示 ChatGPT 账号，同时当前任务使用 DeepSeek”可以是正常状态。
+
+但要注意：
+
+1. 头像仍在，不等于请求一定发给 GPT。
+2. 菜单写着 DeepSeek，不等于 API Key 一定正确。
+3. `codex login status` 显示 ChatGPT，只能说明所检查环境的认证状态，不能证明某次请求的供应商。
+4. API Key 登录本身不是错误；只是本文希望保留 ChatGPT 登录，所以切换后若它发生变化，需要检查。
+
+配置位置和凭据存储差异见[第二章“2.10 找到配置目录并备份”](#s2-10)。不要默认每个版本都只用 `auth.json` 存储登录凭据。
+
+<a id="s3-3"></a>
+## 3.3 下载 CC Switch，并保存官方配置
+
+官方项目入口：[CC Switch 项目](https://github.com/farion1231/cc-switch)、[发布下载页](https://github.com/farion1231/cc-switch/releases)、[项目官网](https://ccswitch.io/)。
+
+### Windows 安装
+
+1. 在浏览器打开发布下载页。
+2. 选择最新稳定版本，展开“Assets / 资源”。
+3. 找到 Windows 安装包，通常是名称含 `Windows` 的 `.msi`；不要下载 `Source code`，那是源代码。
+4. 双击下载的安装包，按向导安装。
+5. 如果使用 Portable 版本，先把 ZIP 完整解压到固定文件夹，再启动里面的应用，不要直接在压缩包预览中运行。
+6. 打开 CC Switch，找到管理应用的切换入口，选 **Codex**，不要停留在 Claude Code 等其他标签。
+
+macOS 可从同一发布页下载 DMG 并按提示安装；Linux 选择发行版对应的安装包。具体可用文件以发布页为准。
+
+### 保存可返回的官方状态
+
+1. 确认原有 Codex 官方 GPT 已按 3.1 节验证成功。
+2. 按第二章 2.11 节完全退出 Codex。
+3. 第一次打开 CC Switch 时，如果提供“导入现有配置”，先确认导入的是刚才正常使用的 Codex 配置。
+4. 在 Codex 供应商列表中寻找“OpenAI Official”“官方登录”或同类官方配置。
+5. 如果没有，点击“添加供应商”，选择官方登录预设，给它命名为 `OpenAI Official` 并保存。
+6. 先启用这张官方卡片，重开 Codex，发一句“请回复配置测试成功，不修改文件”。
+7. 成功后再次退出 Codex，再开始添加 DeepSeek。
+
+这一步是建立返回入口，不是在 CC Switch 中购买 GPT 权限。如果导入项只是自定义名称，要确认它确实对应原先正常工作的官方配置。
+
+CC Switch 的供应商添加与启用行为参考[项目使用说明](https://github.com/farion1231/cc-switch#readme)。
+
+<a id="s3-4"></a>
+## 3.4 开启登录保护，并添加 DeepSeek 原生配置
+
+### 第一步：开启保留官方登录
+
+1. 在 CC Switch 打开“设置”。
+2. 寻找“通用 → Codex 应用增强”或功能对应区域。
+3. 找到“切换第三方时保留官方登录”或同义选项。
+4. 将其开启；有保存按钮时点击保存。
+5. 返回 Codex 供应商列表。
+
+不同版本可能调整位置。如果找不到该功能，先升级 CC Switch 并阅读对应版本说明；**不要在没有确认保护行为的情况下，假定第三方切换一定不会覆盖登录。**项目更新记录包含 OAuth 保留和切换相关修复，说明版本差异确实会影响这一行为。[CC Switch 更新记录](https://github.com/farion1231/cc-switch/blob/main/CHANGELOG.md)
+
+### 第二步：添加 DeepSeek
+
+1. 保持 Codex 桌面端已退出。
+2. 在 CC Switch 中确认当前管理的是 **Codex**。
+3. 点击“添加供应商”。
+4. 优先选择内置的 **DeepSeek 官方**预设，不选择名称相似的第三方中转预设。
+5. 名称可填写 `DeepSeek 官方 Flash`，便于以后辨认。
+6. 在 API Key 输入框粘贴自己的密钥。密钥获取方式见[第一章“1.4 创建并保管 API Key”](#s1-4)。
+7. 核对下面这张表，再保存：
+
+| 项目 | 本章期望值 |
+| --- | --- |
+| 供应商 | DeepSeek 官方 |
+| Base URL | `https://api.deepseek.com` |
+| API 协议 | Responses / Native Responses |
+| 模型 ID | `deepseek-flash` |
+| 密钥 | DeepSeek 开放平台创建的 API Key |
+| 旧协议转换路由 | 本章直连路线不需要 |
+
+**第一章的主路线由 Harness 管理模型与工具；本章 Codex 接入使用 Responses。**第一章 1.16 节的独立诊断使用 Chat Completions，不要把其中的完整 `/chat/completions` 地址填到这里的 Base URL。
+
+DeepSeek 已提供原生 Responses 接口；具体兼容范围见[DeepSeek 官方 Responses 指南](https://api-docs.deepseek.com/zh-cn/guides/responses_api/)。接口兼容不代表所有 OpenAI 托管工具或云端功能都会在 DeepSeek 上自动可用。
+
+### 第三步：启用并验证
+
+1. 在新保存的 DeepSeek 卡片上点击“启用 / 切换”。
+2. 确认 CC Switch 当前启用标记在 DeepSeek 上。
+3. 如果提示必须开启 `Needs Routing` 或旧协议转换，先跳到[第三章“3.8 迁移 Needs Routing 等旧配置”](#s3-8)，不要继续混搭。
+4. 重新启动 Codex。
+5. 在练习项目里创建一个**新任务**，查看是否出现 DeepSeek 对应模型。
+6. 如果有多个模型，选择本章要测试的 Flash；底层 ID 应对应 `deepseek-flash`。
+7. 发送下面这句话：
 
 ```text
-安装 Codex
-↓
-使用 ChatGPT 官方登录
-↓
-安装 CC Switch
-↓
-添加 DeepSeek API Key
+请用一句中文解释什么是单片机。不要联网，也不要修改文件。
 ```
 
----
+8. 等待回答，再按下一节核实请求。
 
-## D. 已经有 DeepSeek API Key
+如果模型目录仍显示旧 ID，更新 CC Switch 后切到官方卡片，再切回 DeepSeek 并重开 Codex。现有卡片未必随软件升级自动更新全部字段；必要时按 3.8 节重建。不要直接打开模型目录文件随意删改。
 
-直接：
+<a id="s3-5"></a>
+## 3.5 判断接入是否真正成功
+
+分开检查三件事：
+
+### 一、模型请求是否成功
+
+新任务能正常回答，没有 401、402 或接口格式错误。不要只停留在“模型名称出现在列表里”。
+
+### 二、请求是否进入 DeepSeek
+
+1. CC Switch 当前启用的是 DeepSeek。
+2. 配置中的目标域名是 `api.deepseek.com`。
+3. 记录刚才测试的时间。
+4. 按[第一章“1.14 确认使用的是 DeepSeek，并查看 API 用量”](#s1-14)查看 DeepSeek 开放平台同时间段的用量。
+5. 如果同时开着第一章的 Harness、PowerShell 诊断或其他 API 程序，先停止其他调用，再做一次简短测试，便于对应记录。
+
+**直连模式下，请求可能根本不经过 CC Switch 本地代理，所以 CC Switch 没有请求日志不等于接入失败。**它的日志和估算费用只能作为特定模式下的辅助信息，官方用量与账单更适合核对费用。
+
+### 三、官方登录是否保留
+
+按[第二章“2.9 检查登录状态与重新登录”](#s2-9)只执行检查登录状态的步骤，预期仍为 ChatGPT 登录；同时核对桌面端账户。
+
+不要为了“检查”主动运行 logout。只有确实需要恢复登录时，才执行该节完整重新登录流程。
+
+**成功标准：**DeepSeek 实际请求成功、后台能核对相应用量，并且官方账户状态仍符合预期。
+
+
+<a id="s3-6"></a>
+## 3.6 从 DeepSeek 切回 GPT
+
+1. 等当前任务结束，或主动停止任务。
+2. 按[第二章“2.11 完全退出、更新和日常使用”](#s2-11)完全退出 Codex。
+3. 打开 CC Switch，进入 Codex 标签。
+4. 选择 3.3 节保存的 `OpenAI Official` 或官方登录卡片。
+5. 点击“启用 / 切换”，确认当前标记在官方卡片上。
+6. 重新启动 Codex。
+7. 新建任务，查看官方可用模型是否恢复，选当前账户可用的模型。
+8. 发一句不修改文件的测试问题，确认得到回答。
+
+如果登录保护正常且登录未失效，通常不必重新登录。若要求登录，按[第二章“2.9 检查登录状态与重新登录”](#s2-9)处理；不要把 DeepSeek API Key 填进 OpenAI 登录入口。
+
+**只有 DeepSeek 模型不代表 GPT 权限丢失。**先切回官方供应商再检查。如果切回后仍无官方模型，检查是否真正启用、是否完全重开、是否仍加载第三方模型目录，再看 3.10 节。
+
+<a id="s3-7"></a>
+## 3.7 从 GPT 切回 DeepSeek，以及日常切换原则
+
+1. 等任务结束并完全退出 Codex。
+2. 打开 CC Switch → Codex。
+3. 选 `DeepSeek 官方 Flash` 卡片。
+4. 点击“启用 / 切换”。
+5. 确认仍是官方地址、原生 Responses 配置。
+6. 重开 Codex，新建任务，选择对应 DeepSeek 模型。
+7. 必要时按 3.5 节发一个短问题核验。
+
+正常情况下不必反复创建密钥，也不必每次重新注册或登录。
+
+日常记住这几条：
+
+- **先退出再切换。**点击 CC Switch 卡片很快，但不代表已经打开的 Codex 任务会完整刷新供应商、地址和模型目录。
+- 切换后用新任务验证。旧任务可能保留模型或供应商相关状态，不能把旧对话续接失败直接当成整个接入失败。
+- 首次配置只用一个配置管理工具。不要让 CC Switch 与 DeepSeek 官方安装脚本轮流重写同一份配置。
+- 切换后不要让两个共享配置目录的窗口继续各跑各的供应商。需要真正并行隔离时，应另做独立配置目录方案，不属于本章的新手流程。
+- 从 GPT 换到 DeepSeek 后，发送的提示词以及工具读取后提交给模型的内容，会按所选供应商处理；检查当前供应商再发送工作资料。
+
+<a id="s3-8"></a>
+## 3.8 迁移 Needs Routing 等旧配置
+
+旧配置可能显示 `Needs Routing`，或把地址写成 `127.0.0.1:15721` 等本地地址。这不表示所有本地代理都有问题；它可能是你有意使用的代理功能。但本章选择的是 **DeepSeek 官方原生直连**，不需要旧版 Chat Completions → Responses 协议转换。
+
+按下面顺序迁移，避免先删除唯一可用配置：
+
+1. 按第二章 2.11 节完全退出 Codex。
+2. 按[第二章“2.10 找到配置目录并备份”](#s2-10)备份当前配置。
+3. 在 CC Switch 中保留旧卡片，不急着删除。
+4. 更新 CC Switch 到当前稳定版本，重新打开。
+5. 按 3.4 节确认“保留官方登录”选项。
+6. 用最新 DeepSeek 官方预设**新建一张卡片**，命名为 `DeepSeek 官方直连-新`。
+7. 填入现有有效密钥，核对官方 Base URL、Responses 协议和 `deepseek-flash`。
+8. 若你曾开启 Codex 本地路由接管，找到对应接管开关，在确认无其他任务依赖后关闭该接管；不要随意结束整个系统里的代理程序。
+9. 启用新卡片，重新打开 Codex，新建任务。
+10. 按 3.5 节完成实际调用与官方登录检查。
+11. 新配置成功后，才在 CC Switch 中停用或删除旧 DeepSeek 卡片，避免以后误点。
+12. 如果失败，切回已验证过的官方卡片，并按后面的故障章节定位。
+
+原有官方 Codex 接入文档入口是[DeepSeek Codex 接入指南](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)。若旧链接失效，从[DeepSeek Responses 指南](https://api-docs.deepseek.com/zh-cn/guides/responses_api/)中的接入入口寻找当前说明。官方接入方案可以作为另一条路线，但不要与 CC Switch 同时反复修改同一套配置。
+
+<a id="s3-9"></a>
+## 3.9 按请求地址排查 401
+
+先找到报错中的**请求域名**，再决定改哪家的密钥。只看到“401”就反复充值，通常解决不了问题。
+
+### 情况 A：请求发给 api.deepseek.com
+
+1. 确认 CC Switch 当前是 DeepSeek。
+2. 按[第一章“1.15 项目助手常见问题：按现象一步一步排查”](#s1-15)处理 DeepSeek 的 401。
+3. 先按[第一章“1.16 可选排障：绕过助手，独立测试 API”](#s1-16)验证同一把密钥。
+4. 独立请求成功后，回 CC Switch 重新填写密钥并保存。
+5. 退出并重开 Codex，再建新任务测试。
+
+此时优先检查 DeepSeek 密钥，而不是先注销 ChatGPT。
+
+### 情况 B：切回 GPT 后，请求发给 api.openai.com，却提示 invalid_api_key
+
+如果错误中的地址类似：
 
 ```text
-Codex 官方登录
-↓
-CC Switch
-↓
-开启保留官方登录
-↓
-添加 DeepSeek Provider
-```
-
----
-
-## E. Codex 和 DeepSeek 都使用过，但没有接起来
-
-确认：
-
-```text
-Codex login status = Logged in using ChatGPT
-```
-
-然后直接从：
-
-```text
-CC Switch 添加 DeepSeek
-```
-
-开始。
-
----
-
-## F. 已经配置坏了
-
-如果遇到：
-
-```text
-GPT 消失
+https://api.openai.com/v1/responses
 401 Unauthorized
 invalid_api_key
 ```
 
-先恢复官方状态：
+而你之前切换过 DeepSeek，可能是第三方密钥或旧 API 登录状态残留；**这是可能原因，不是所有 401 的唯一原因**。
 
-```text
-CC Switch
-→ OpenAI Official
-↓
-codex logout
-↓
-codex login
-↓
-Sign in with ChatGPT
-↓
-确认 Logged in using ChatGPT
-↓
-确认 GPT 恢复
-```
+1. 确认 CC Switch 当前启用的是官方卡片。
+2. 按[第二章“2.9 检查登录状态与重新登录”](#s2-9)检查认证方式。
+3. 本文期望 ChatGPT 登录；如果变成 API Key 登录，按该节恢复 ChatGPT 登录。
+4. 如果已显示 ChatGPT 登录但仍报错，继续检查 3.10、3.11 节中的配置和环境变量。
+5. 重开 Codex，在新任务里验证官方模型。
 
-然后再重新按照本文流程添加 DeepSeek。
+不要把 DeepSeek 密钥再粘贴一次到 OpenAI 的 API Key 登录框。
 
----
+### 情况 C：请求发给陌生域名或本地地址
 
-# 25. 推荐的日常使用方式
+1. 不要继续填写新密钥。
+2. 检查当前卡片是否选成了其他服务商。
+3. 查看是否仍启用旧本地路由接管。
+4. 按 3.8 节迁移，或按 3.12 节回到正常官方配置。
+5. 如果你本来就有意使用其他服务，则按那家服务的说明排查，不能套用 DeepSeek 官方密钥规则。
 
-## 使用 GPT
+<a id="s3-10"></a>
+## 3.10 检查 config.toml 与模型目录
 
-```text
-CC Switch Provider：
-OpenAI Official
+配置路径和打开方法统一见[第二章“2.10 找到配置目录并备份”](#s2-10)。先备份，再用记事本只读查看；初学者优先在 CC Switch 中修改对应卡片。
 
-Codex 登录：
-ChatGPT OAuth
+重点看这些字段是否与当前所选供应商一致：
 
-然后：
-重启 Codex
-```
+| 字段或结构 | 检查什么 |
+| --- | --- |
+| `model_provider` | 当前选择了哪一个供应商标识 |
+| `[model_providers.某个名称]` | 该标识对应的供应商配置 |
+| `base_url` | 实际指向官方服务、DeepSeek 还是旧本地代理 |
+| `wire_api` | DeepSeek 这条路线应使用 Responses |
+| `model` | 当前模型是否属于所选供应商 |
+| `model_catalog_json` | 是否引用第三方模型目录，路径是否有效 |
+| `env_key` | 是否从指定环境变量读取密钥 |
+| `experimental_bearer_token` | 某些工具可能在这里写入凭据；不要截图公开 |
 
----
+不是每个版本都会出现表中全部字段，字段缺失不能一概视为错误。
 
-## 使用 DeepSeek
+尤其不要一看到 `[model_providers.custom]` 就删除整段。CC Switch 可能使用它管理第三方供应商，删除会破坏当前卡片；应先判断顶层实际选中谁、地址指向哪里。
 
-```text
-CC Switch Provider：
-DeepSeek
+也不要往文件末尾重复粘贴整段配置：重复的 TOML 表或重复键可能导致启动失败。恢复优先按 3.12 节使用已验证的备份。
 
-“切换第三方时保留官方登录”：
-开启
+<a id="s3-11"></a>
+## 3.11 检查环境变量与 .env，避免打印密钥
 
-DeepSeek：
-原生 Responses 配置
+如果官方登录已恢复，仍像在使用旧密钥，可检查历史教程留下的环境变量。下面只显示**变量名、作用域和是否存在**，不显示实际值。
 
-然后：
-重启 Codex
-```
-
----
-
-# 26. 最终自检清单
-
-## 软件
-
-- [ ] Codex 已更新至最新版
-- [ ] CC Switch 已更新至最新版
-- [ ] CC Switch 来自官方渠道
-
-## 官方登录
-
-- [ ] Codex 已通过 ChatGPT 登录
-- [ ] `codex login status` 显示 `Logged in using ChatGPT`
-
-## CC Switch
-
-- [ ] 已开启“切换第三方时保留官方登录”
-
-## DeepSeek
-
-- [ ] 已创建 DeepSeek API Key
-- [ ] API Key 有效
-- [ ] API 账户有可用额度
-- [ ] 使用最新版 DeepSeek 预设
-- [ ] Base URL 使用官方地址
-- [ ] 使用 Responses / Native Responses
-
-## 旧路由
-
-- [ ] 不再使用旧 `Needs Routing` 配置
-- [ ] 不依赖旧版 Codex 本地协议转换路由
-
-## 最终运行状态
-
-- [ ] CC Switch 当前 Provider 为 DeepSeek
-- [ ] 重启 Codex 后出现 DeepSeek 模型
-- [ ] 请求可以正常执行
-- [ ] DeepSeek API 后台产生调用
-- [ ] `codex login status` 仍然显示 ChatGPT
-
----
-
-# 27. 常见问题 FAQ
-
-## Q1：切换到 DeepSeek 后，GPT 模型全没了，正常吗？
-
-正常。
-
-当前 Provider 是 DeepSeek 时，Codex 的模型目录可能只展示 DeepSeek。
-
-切回 OpenAI Official 并重启 Codex 后，GPT 模型通常会重新出现。
-
----
-
-## Q2：为什么 Codex 仍然显示我的 OpenAI / ChatGPT 账号？
-
-因为登录认证和模型 Provider 是两套状态。
-
-你可以：
-
-```text
-保持 ChatGPT 官方登录
-+
-使用 DeepSeek 模型
-```
-
-这是本文推荐的状态。
-
----
-
-## Q3：我可以在同一个模型菜单里同时看到 GPT 和 DeepSeek 吗？
-
-通常不应依赖这种方式。
-
-更可靠的方法是：
-
-```text
-CC Switch 切换 Provider
-↓
-重启 Codex
-```
-
----
-
-## Q4：切换 DeepSeek 后，`codex login status` 应该显示什么？
-
-理想状态仍然是：
-
-```text
-Logged in using ChatGPT
-```
-
-如果变成：
-
-```text
-Logged in using an API key
-```
-
-说明第三方 API Key 已经替代官方登录，需要修复。
-
----
-
-## Q5：看到 `Needs Routing` 怎么办？
-
-不要继续开启旧路由。
-
-建议：
-
-```text
-升级 CC Switch
-↓
-删除旧 DeepSeek Provider
-↓
-使用最新版 DeepSeek 预设重新创建
-↓
-使用原生 Responses
-```
-
----
-
-## Q6：为什么以前的教程都要求开路由？
-
-因为以前 DeepSeek 与 Codex 的接口格式存在差异，需要 CC Switch 进行协议转换。
-
-现在 DeepSeek 已经提供原生 Responses API，因此新配置不应再依赖旧协议转换方案。
-
----
-
-## Q7：出现 `401 invalid_api_key` 怎么办？
-
-第一步：
+在 Windows PowerShell 运行：
 
 ```powershell
-codex login status
+$inspectNames = @(
+    "OPENAI_API_KEY",
+    "CODEX_API_KEY",
+    "OPENAI_BASE_URL",
+    "DEEPSEEK_API_KEY",
+    "CODEX_HOME"
+)
+foreach ($inspectScope in @("Process", "User", "Machine")) {
+    foreach ($inspectName in $inspectNames) {
+        $inspectValue = [Environment]::GetEnvironmentVariable($inspectName, $inspectScope)
+        if (-not [string]::IsNullOrEmpty($inspectValue)) {
+            [pscustomobject]@{
+                Name = $inspectName
+                Scope = $inspectScope
+                Present = $true
+            }
+        }
+    }
+}
+Remove-Variable inspectValue -ErrorAction SilentlyContinue
 ```
 
-如果显示 API Key 登录：
+它们的存在不一定是故障原因：
 
-```powershell
-codex logout
-codex login
-```
+- `DEEPSEEK_API_KEY` 可能是别的程序正常使用的变量。
+- `CODEX_HOME` 可能解释为什么 CLI 与桌面端读了不同配置。
+- `OPENAI_API_KEY` 等变量是否影响当前请求，取决于认证方式、配置和启动方式，不能只因存在就全删。
 
-然后选择：
+如果确定某个变量是你过去为这次错误配置添加的：
 
-```text
-Sign in with ChatGPT
-```
+1. 点击开始菜单，搜索“编辑帐户的环境变量”并打开。
+2. 找到已确认的变量，查看它的用途；不要把值截图发送。
+3. 仅删除或纠正那个错误项，不动其他应用需要的变量。
+4. 用户变量与系统变量是不同作用域；系统变量涉及其他用户或管理策略，不确定时不要改。
+5. 完全关闭并重开终端、CC Switch 和 Codex，必要时重新登录 Windows，使新进程取得新环境。
 
----
+如果怀疑 `.codex\.env` 中有旧设置：
 
-## Q8：可以直接使用 DeepSeek 官方配置脚本吗？
+1. 用资源管理器进入第二章 2.10 节确定的真实配置目录。
+2. 找到 `.env`；没有就跳过。
+3. 在本机用记事本查看，搜索上述变量名。
+4. 确认究竟哪个工具会加载这个文件，再修改确实错误的行。**文件存在不代表每个 Codex 版本都会自动读取它。**
+5. 不要把整个 `.env` 发到聊天中；仅提供脱敏后的变量名和问题描述。
 
-可以。
+<a id="s3-12"></a>
+## 3.12 配置坏了：回到已验证的官方状态
 
-如果你只打算长期使用 DeepSeek，DeepSeek 官方 Codex 接入方式也可以使用。
+按由轻到重的顺序恢复：
 
-但如果你经常：
+1. 完全退出 Codex。
+2. 在 CC Switch 启用 3.3 节保存的官方卡片。
+3. 重开 Codex 并新建测试任务。
+4. 若仅是登录问题，按[第二章“2.9 检查登录状态与重新登录”](#s2-9)恢复。
+5. 若仍是配置解析或模型目录问题，再退出 Codex 和 CC Switch。
+6. 找到第二章 2.10 节备份的、当时官方 GPT 能正常工作的 `config.toml`。
+7. 将现在出问题的 `config.toml` 另存为带日期的故障副本，方便回查。
+8. 将正常备份复制回实际配置目录；若备份叫 `config.toml.backup`，恢复后名称必须是 `config.toml`。
+9. 暂时不要启动 CC Switch，先打开 Codex 测试。
+10. 如果正常，说明恢复的配置可用；之后重新打开 CC Switch 时，确认导入或管理的是这份正常配置，避免再次启用坏卡片。
+11. 登录仍需恢复时重新登录，不要从来源不明的地方下载 `auth.json`。
 
-```text
-DeepSeek
-↕
-GPT
-```
+不用为了修一个供应商配置就删除整个 `.codex`；那里可能还有任务记录和其他设置。没有可用备份时，先保留故障配置，使用官方卡片和官方登录路线逐项恢复。
 
-并希望保留官方 ChatGPT 登录，使用 CC Switch 管理 Provider 会更方便。
+<a id="s3-13"></a>
+## 3.13 常见疑问与最终检查
 
-不建议同时让 DeepSeek 官方脚本和 CC Switch 反复修改同一套 `~/.codex/config.toml`。
+**为什么 DeepSeek 模式下 GPT 不见了？**
 
----
+当前供应商的模型目录可能只展示该供应商的模型。按“3.6 从 DeepSeek 切回 GPT”切回并重开后再检查。
 
-# 28. 官方下载与文档链接
+**为什么还显示我的 ChatGPT 头像？**
 
-## OpenAI / Codex
+这是本章保留官方身份的预期表现之一，但头像不能证明实际模型；按“3.5 判断接入是否真正成功”核实。
 
-ChatGPT / Codex 官方下载：
+**可以不使用 ChatGPT 登录，只配置 DeepSeek 吗？**
 
-https://chatgpt.com/download/
+这是另一种配置目标。本文第一章已经提供完全不依赖 Codex 和 ChatGPT 的 DeepSeek 本地项目助手用法；若要只用 Codex CLI 配 DeepSeek，应按 DeepSeek 当前官方接入说明单独配置，不必把本章的“保留官方登录”当成所有用法的强制条件。
 
-OpenAI Codex：
+**接入 DeepSeek 后，Codex 的所有能力都和 GPT 一样吗？**
 
-https://openai.com/codex/
+不保证。能正常聊天、读写文件，不代表所有插件、托管工具或云端能力都支持。先完成短问题测试，再在练习目录测试具体功能，按实际错误判断。
 
----
+**需要每次换 Key 或重新登录吗？**
 
-## CC Switch
+正常切换不需要。只有密钥撤销、登录过期、认证被覆盖或服务端要求验证等情况，才处理相应凭据。
 
-官网：
+**七条日常原则：**
 
-https://ccswitch.io/
+1. 先让 DeepSeek API 和官方 GPT 各自工作，再接入。
+2. 账号身份、供应商、模型是三件不同的事。
+3. DeepSeek 新配置使用官方原生 Responses 和当前有效模型 ID。
+4. 切换前结束任务，完全退出后再切换。
+5. 切换后用新任务验证，不靠头像或模型自报身份判断。
+6. 401 先看请求域名，再检查对应凭据。
+7. 修改前备份；不让两个工具反复改同一配置。
 
-GitHub：
+**最终自检：**
 
-https://github.com/farion1231/cc-switch
+- [ ] 第一章的 DeepSeek 项目读写与运行练习成功。
+- [ ] 第二章的官方 GPT 任务成功。
+- [ ] Codex 与 CC Switch 使用的配置目录一致。
+- [ ] 已备份正常配置，并知道恢复位置。
+- [ ] CC Switch 已确认启用保留官方登录。
+- [ ] DeepSeek 卡片使用官方地址、原生 Responses、有效密钥和 `deepseek-flash`。
+- [ ] DeepSeek 新任务成功，官方后台可核对用量。
+- [ ] 切回官方后，GPT 新任务成功。
+- [ ] 再切回 DeepSeek 后仍能使用，不需要重建账号或密钥。
 
-Releases：
+<a id="s3-14"></a>
+## 3.14 资料核对与后续更新入口
 
-https://github.com/farion1231/cc-switch/releases
+| 想核对什么 | 原始资料 |
+| --- | --- |
+| DeepSeek 项目助手安装与使用 | [Harness 官方项目](https://github.com/deepseek-ai/deepseek-harness)、[工作区指南](https://deepseek-harness.github.io/deepseek-harness/guide/quickstart)、[模型配置](https://deepseek-harness.github.io/deepseek-harness/guide/providers) |
+| DeepSeek 账户、密钥、用量 | [DeepSeek 开放平台](https://platform.deepseek.com/) |
+| 当前 API 基础地址与模型 ID | [DeepSeek 首次调用 API](https://api-docs.deepseek.com/zh-cn/) |
+| V4.1 Flash 与模型变化 | [DeepSeek 更新日志](https://api-docs.deepseek.com/updates/) |
+| 请求写法与思考模式 | [官方请求示例](https://api-docs.deepseek.com/api_samples/chat_curl/)、[思考模式](https://api-docs.deepseek.com/guides/thinking_mode/) |
+| Responses 的支持范围 | [DeepSeek Responses 指南](https://api-docs.deepseek.com/zh-cn/guides/responses_api/) |
+| 价格及错误码 | [模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)、[错误码](https://api-docs.deepseek.com/zh-cn/quick_start/error_codes/) |
+| 官方桌面安装和 CLI | [桌面快速开始](https://developers.openai.com/codex/quickstart)、[Windows 桌面说明](https://learn.chatgpt.com/docs/windows/windows-app)、[Codex CLI](https://learn.chatgpt.com/docs/codex/cli) |
+| 官方认证方式 | [OpenAI 认证说明](https://learn.chatgpt.com/docs/auth) |
+| CC Switch 安装与兼容性变化 | [项目](https://github.com/farion1231/cc-switch)、[发布页](https://github.com/farion1231/cc-switch/releases)、[更新记录](https://github.com/farion1231/cc-switch/blob/main/CHANGELOG.md) |
 
----
-
-## DeepSeek
-
-DeepSeek API Platform：
-
-https://platform.deepseek.com/
-
-DeepSeek API 中文文档：
-
-https://api-docs.deepseek.com/zh-cn/
-
-DeepSeek 官方 Codex 接入指南：
-
-https://api-docs.deepseek.com/quick_start/agent_integrations/codex/
-
-DeepSeek Responses API：
-
-https://api-docs.deepseek.com/zh-cn/guides/responses_api/
-
----
-
-# 29. 七条必须记住的原则
-
-```text
-1. Codex 官方登录 ≠ 当前模型 Provider
-
-2. DeepSeek API Key 不应该覆盖 ChatGPT OAuth
-
-3. 使用最新版 CC Switch 和最新版 DeepSeek 预设
-
-4. 旧配置显示 Needs Routing：
-   升级并重建 Provider
-   不要继续沿用旧路由
-
-5. 新版 DeepSeek 使用原生 Responses API
-
-6. 切换 Provider 后重启 Codex
-
-7. 出现 401 invalid_api_key：
-   第一件事检查 codex login status
-```
-
-只要遵守这七条，DeepSeek 接入 Codex 的配置会稳定很多，也能避免绝大多数因为旧教程、旧 Provider、认证覆盖或本地路由残留造成的问题。
+本文是依据官方资料与原指南整理的操作教程。按钮位置可能随版本改变，账户资格、可用支付方式、额度和模型列表以你实际看到的官方页面为准。示例不包含真实密钥；文档检查不等于已经用你的账号完成付费调用。
